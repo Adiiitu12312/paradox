@@ -20,6 +20,9 @@ jobs:
       - run: cargo test --workspace --locked
       - run: cargo test --release --test performance --locked -- --ignored --nocapture
       - run: cargo build --release --locked -p paradox-cli
+      - name: Verify terminal colors, pager, editor and Ctrl+C
+        if: runner.os != 'Windows'
+        run: python3 scripts/test_terminal.py target/release/paradox
       - uses: actions/upload-artifact@v4
         with:
           name: paradox-${{ runner.os }}-${{ runner.arch }}
