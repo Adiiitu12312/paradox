@@ -111,3 +111,7 @@ that repository on exit. It fails if measured paired overhead reaches 5 ms.
 M1 workspace and dispatcher; M2 loop store and capture; M3 compare and rewind;
 M4 automatic capture, setup and commit conveniences; M5 file picker;
 M6–M8 browser UI; M9 hardening and release documentation.
+
+After M9, an [optional session-only watch milestone](docs/milestones/M10-optional-watch.md)
+adds manually started native-event capture. It is deferred, never auto-started
+and never installed as a service.
