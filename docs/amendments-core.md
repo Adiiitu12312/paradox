@@ -31,10 +31,16 @@ The initial macOS 20-saver burst measured a 17.047125 ms median lock wait and
 78.886042 ms durable-marker exit (run 38770132710, bbf0076). This exceeded the
 original 50 ms contention budget by 57.77%. The owner authorized choosing a
 practical exception: macOS has a 100 ms limit, with the stored baseline enforcing
-the tighter 95.6632504 ms regression ceiling. Linux/Windows keep 50 ms. The lock
+the tighter 95.6632504 ms regression ceiling. Windows subsequently measured
+135.0832 ms (170.17% over 50 ms), with 20.2242 ms median lock wait, in run
+38772397963, 4f63bba. The owner authorized a practical Windows-only 200 ms limit;
+the stored baseline imposes a tighter 163.09984 ms ceiling. Linux keeps 50 ms. The lock
 timeout remains 15 ms and atomic writes, fsync and SQLite durability are unchanged.
 The exception concerns simultaneous contended saves, not the normal single-save
-or scan gates. See `benchmarks/pending.csv`; failed measurements remain recorded.
+or scan gates. Initial observations were debug-profile concurrency tests; CI
+also measures and gates the optimized release profile. See
+`benchmarks/pending.csv` and `pending-observations.csv`; failed measurements
+remain recorded.
 
 Pass-through reads no Paradox config unless `<store>/safety_enabled` exists.
 After editing `safety_loop_commands`, run `paradox init` or another owned

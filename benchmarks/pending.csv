@@ -3,6 +3,10 @@
 # Original 50 ms gate missed by 57.772084%; owner authorized a practical exception
 # on October 15, 2026. Atomic writes, fsync and locking remain unchanged.
 # Regression ceiling: min(limit, baseline * 1.2 + 1 ms). Do not auto-raise.
-# Linux and Windows retain the original 50 ms limit pending observations.
+# Initial observations are debug-profile concurrency tests; CI additionally
+# records the release-profile gate. Linux retains its original 50 ms limit.
+# Windows run 38772397963, 4f63bba: 135.0832 ms (170.1664% over 50 ms).
+# Owner authorized the practical 200 ms Windows limit on October 15, 2026.
 os,baseline_ms,limit_ms
 macos,78.886042,100
+windows,135.0832,200
