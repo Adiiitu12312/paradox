@@ -578,8 +578,8 @@ impl LoopStore {
             let entry = entry?;
             let name = entry.file_name();
             let name = name.to_string_lossy();
-            if name.starts_with("writing-")
-                && name.ends_with(".toml")
+            if ((name.starts_with("writing-") && name.ends_with(".toml"))
+                || (name.starts_with("setup-") && name.ends_with(".json")))
                 && entry.file_type()?.is_file()
             {
                 markers += entry.metadata()?.len().max(4096);

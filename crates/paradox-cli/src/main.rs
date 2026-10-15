@@ -40,7 +40,10 @@ fn capture(args: &[OsString], index: usize) {
     if let Some(event) = &options.hook {
         if let Err(error) = workflow::hook(event, &args[..index]) {
             paradox_core::store::log_at(&repo.store, &format!("{event}: {error:#}"));
-            if event == "pre-commit" { eprintln!("paradox: staged marker stripping failed: {error:#}"); std::process::exit(1); }
+            if event == "pre-commit" {
+                eprintln!("paradox: staged marker stripping failed: {error:#}");
+                std::process::exit(1);
+            }
         }
         return;
     }
@@ -114,10 +117,16 @@ fn main() {
             Ok(commands::run(&args, index))
         }
         Route::Owned { index } if args[index] == "init" || args[index] == "commit" => {
-            let result = if args[index] == "init" { workflow::init(&args, index) } else { workflow::commit(&args, index, None) };
+            let result = if args[index] == "init" {
+                workflow::init(&args, index)
+            } else {
+                workflow::commit(&args, index, None)
+            };
             Ok(workflow_result(result))
         }
-        Route::FileCommit { index, file } => Ok(workflow_result(workflow::commit(&args, index, Some(file)))),
+        Route::FileCommit { index, file } => {
+            Ok(workflow_result(workflow::commit(&args, index, Some(file))))
+        }
         Route::Owned { index } => {
             eprintln!(
                 "paradox: '{}' is not available in M3; see paradox --help",
@@ -140,5 +149,11 @@ fn main() {
 }
 
 fn workflow_result(result: anyhow::Result<i32>) -> i32 {
-    match result { Ok(code) => code, Err(error) => { eprintln!("paradox: {error:#}"); 1 } }
+    match result {
+        Ok(code) => code,
+        Err(error) => {
+            eprintln!("paradox: {error:#}");
+            1
+        }
+    }
 }

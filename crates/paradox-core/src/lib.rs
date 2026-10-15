@@ -1,14 +1,14 @@
 //! Shared operations that delegate to the installed Git executable.
 pub mod blob;
+pub mod commit;
 pub mod config;
 pub mod git;
 pub mod history;
 pub mod message;
 pub mod repo;
+pub mod setup;
 pub mod store;
 pub mod tracking;
-pub mod commit;
-pub mod setup;
 
 pub(crate) fn fault(point: &str) {
     #[cfg(feature = "fault-injection")]
