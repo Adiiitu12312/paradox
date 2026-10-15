@@ -1,0 +1,3 @@
+# Local diagnostic of the exact hosted release test binary; not a hosted-gate waiver.
+os,source,binary_run_id,savers,lock_median_ms,exit_median_ms,max_ms,test_sha256
+windows,6f074c0,38782358592,20,20.4513,53.0967,56.9709,93742aeb399c79e96a3682ef8d7b3c6d1de42cb3bdc4dddd542c96c820530ecd

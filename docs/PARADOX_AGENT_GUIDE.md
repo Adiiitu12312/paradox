@@ -35,4 +35,4 @@ explains how to raise the watch limit.
 Commit with `paradox commit -m "message"`, or name files to commit only those
 paths. Git's staged content loses valid marker lines; working files keep them.
 Retained markers may therefore appear as working changes after commit. Never
-edit `.paradox` directly or stage its contents.
+edit `<git-common-dir>/paradox` directly or stage legacy `.paradox` contents.

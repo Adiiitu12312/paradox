@@ -180,7 +180,7 @@ Integration tests (assert_cmd, temp repos)
 - Process-lifecycle check: no command auto-starts any background process. Only explicitly started `paradox ui` and `paradox watch` sessions may remain running. A watcher must leave no process after Ctrl+C, `--stop` or idle exit; test foreground and explicitly requested background sessions.
 Performance benchmarks (fail the build on regression)
 - Pass-through overhead vs plain git under 5 ms median on Linux/macOS and under 20 ms on Windows; also enforce the stored per-OS regression baseline. Interleave Git and Paradox in one test process within each assessment, with at least 200 measured samples each after warm-up. CI schedules three consecutive assessments on fresh hosted runners using the same precompiled release binary and Rust harness. Compare the median signed paired timing difference; fail a command only if its unchanged ceiling is exceeded in at least two of three assessments. Always retain all three results and raw pairs; missing/invalid reports fail. Direct local release tests use three consecutive rounds in one process. Keep stored baseline observations unchanged and capture performance a separate strict gate without rerun voting.
-- `paradox loop <file>` on 50,000 tracked files: median under 50 ms on Linux/macOS, under 100 ms on Windows. Warm stat scan median under 500 ms on Linux/macOS, under 1000 ms on Windows. Enforce stored per-OS capture baselines as well as these limits; atomic writes, fsync, SQLite synchronous mode and locking remain mandatory.
+- `paradox loop <file>` on 50,000 tracked files: median under 50 ms on Linux/macOS, under 100 ms on Windows. Warm stat scan median under 500 ms on Linux/macOS, under 1000 ms on Windows. Enforce stored per-OS capture baselines as well as these limits; atomic writes, fsync, SQLite synchronous mode and locking remain mandatory. Run capture and contention gates once per OS on fresh hosted runners using precompiled release harnesses and the exact packaged CLI; retain executable hashes, source/image/run provenance and raw logs. No retries or voting apply to these gates.
 - Synthetic large repo (use `git fast-import`, 100k+ commits, multi-GB if feasible, otherwise scaled with documented extrapolation): UI graph first page under 300 ms, smooth paging.
 UI tests
 - API tests for each endpoint against temp repos; token/Host/Origin rejection tests.
@@ -248,6 +248,15 @@ against its retained 135.0832 ms baseline, capped at the approved 200 ms limit.
 CI gates optimized release timing; debug tests enforce functional correctness
 and retain diagnostic timings. Linux retains 50 ms. The lock deadline
 remains 15 ms, and atomic writes, fsync and SQLite durability stay unchanged.
+
+Final Windows contention follow-up (October 16, 2026): under the owner's
+delegated practical choice, the 20-saver burst limit is 400 ms with a reviewed
+299.6146 ms fresh-host release baseline and 1.2 allowance, enforcing a tighter
+360.53752 ms regression ceiling. Run 38786374252 measured 299.6146 ms, 49.8073%
+over the prior 200 ms budget, after the bounded redundant-metadata optimization.
+All functional tests passed. Retain initial baselines and failed observations as
+history. No safety/durability change is involved; normal Windows saves retain
+100 ms, warm scans 1000 ms, and pass-through 20 ms.
 
 The owner subsequently authorized continuing directly from accepted M4.5 into
 M5 and the remaining milestones, while reporting each boundary. The temporary

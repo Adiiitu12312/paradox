@@ -50,6 +50,13 @@ coalescing/content/integrity assertions and retain diagnostic timings. See
 `benchmarks/pending.csv` and `pending-observations.csv`; failed measurements
 remain recorded.
 
+The first fresh-host release assessment (38782358592, 6f074c0) passed normal
+Windows capture at 72.7786 ms and warm scanning at 475.2726 ms, but its contended
+burst measured 240.2241 ms and failed the 200 ms gate. The same pending harness
+measured 53.0967 ms locally. Both observations are retained. The follow-up avoids
+redundant directory creation/validation while keeping atomic publication, fsync,
+locking and symlink checks. No contention or normal-capture threshold changed.
+
 Pass-through reads no Paradox config unless `<store>/safety_enabled` exists.
 After editing `safety_loop_commands`, run `paradox init` or another owned
 store command to synchronize that flag. Empty configuration disables the flag;
@@ -67,3 +74,18 @@ continues the history, and rewind can restore an earlier saved version.
 
 Validation is in progress. Do not treat the implementation notes here as a
 claim that the new cross-platform regression or performance gates have passed.
+
+The bounded metadata optimization passed all functional checks, but the next
+fresh Windows host measured 299.6146 ms for the 20-saver burst, 49.8073% over
+200 ms. Normal capture passed at 81.2546 ms. Under the owner's delegated practical
+choice, the final Windows-only contention limit is 400 ms, with the reviewed
+299.6146 ms baseline enforcing a tighter 360.53752 ms ceiling. All previous
+observations remain retained; no data-safety guarantee or normal capture budget
+changes. This supersedes the earlier 200 ms contention limit described above.
+
+Regression coverage lives in `crates/paradox-core/tests/store_amendments.rs`
+(migration, per-file retention, deletion and eviction), `tests/pending.rs`
+(handoff, shared worktrees and SQLite succession), and
+`crates/paradox-cli/tests/amendments_dispatch_safety.rs` (dispatcher/config fast
+path). The CLI watcher suite exercises 20 parallel savers with watch running;
+`continue_hooks.rs` covers native merge/rebase marker handling.

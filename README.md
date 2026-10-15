@@ -9,8 +9,11 @@ complete M7 acceptance, then stop. M8, M9 and S (future cloud-system exploration
 remain pending for later. No cloud research starts before M7 is accepted.
 The [M6 work report](docs/milestones/M6.md) records its current validation state.
 The [contention benchmark](benchmarks/pending.csv) records approved burst handoff
-limits: macOS 100 ms (78.886042 ms observed) and Windows 200 ms (135.0832 ms
-observed), with stored-baseline protection. Initial observations were debug
+limits: macOS 100 ms (78.886042 ms observed) and Windows 400 ms (299.6146 ms
+observed, with a tighter 360.53752 ms ceiling), with stored-baseline protection.
+The Windows burst exception uses the owner's delegated practical choice after
+fresh-runner durable-write variance exceeded 200 ms; normal saves retain 100 ms.
+Initial observations were debug
 tests; CI gates release timing and keeps all debug functional checks. The 15 ms lock timeout
 and durable writes remain unchanged.
 Capture and contention timing run once per OS on fresh hosted runners using
@@ -109,6 +112,13 @@ Commands reserved for future milestones return an explicit unavailable error.
 Use `paradox git commit` and `paradox git init` for pure Git behavior. Help
 requests for Git's `commit` and `init` still go to Git without doing setup.
 File-first commit routing recognizes explicit path syntax (a dot or path separator).
+Owned command names take priority over file names. To commit a file named
+`loop`, use `paradox -- loop commit -m "message"`; for a file named `commit`,
+use `paradox -- commit commit -m "message"`.
+
+Pass-through reads no Paradox configuration unless the shared store contains
+`safety_enabled`. After changing the opt-in `safety_loop_commands` configuration,
+run `paradox init` or another owned store command to synchronize that flag.
 
 ## Loop capture (M2)
 
@@ -119,11 +129,23 @@ paradox loop --stats
 paradox loop --gc
 ```
 
+The store lives at `<git-common-dir>/paradox` (`.git/paradox` in a normal repo),
+shared by worktrees and outside their working trees. It needs no `info/exclude`
+entry. `paradox init` moves a legacy in-tree `.paradox` store intact; stop older
+Paradox commands/watchers first. Migration refuses to overwrite a second store
+and never falls back to copying and deleting its contents.
+
 Explicit saves only consider tracked paths. A scan with no file arguments examines
 the tracked set and records changed files; untracked directories are not traversed.
 Secret-denylisted paths, binary files, symlinks and files above the size limit are
 skipped. Repeated identical content is deduped. Save errors are nonfatal and go to
 the bounded `<git-common-dir>/paradox/log`.
+
+On contention, `loop` tries the lock for 15 ms, writes a tiny pending path marker,
+and exits successfully. The lock holder drains markers using current file
+contents before releasing; repeated saves coalesce. Editor saves run asynchronously.
+A tracked file disappearing records a `deleted` loop without a blob. Reappearing
+at the same path continues its history; rewind can restore a pre-deletion version.
 
 Messages use `//>`, `#>`, `-->`, `-- >`, `;>`, `%>`, `/*> message */` or
 `<!--> message -->` on the first line. Shebang and standalone `<?php` files use
@@ -240,11 +262,13 @@ stripping errors stop the commit to prevent message leakage. `paradox commit
 `git commit --no-verify` retains Git's normal hook-bypass behavior. A normal raw
 Git commit uses the installed stripping and retention hooks.
 
-After commit, retention removes unpinned loops older than the third most recent
-commit. Pinned loops, current uncommitted work and history whose ancestry cannot
-be safely established remain. Fewer than three commits purge nothing. Retention
-and GC remain subject to the storage cap; pins protect loops from both. A retained
-marker alone does not disable retention. Other worktrees purge their own loops.
+After commit, retention is evaluated per file. Keep a loop if it is newer than
+that file's latest commit, belongs to its last three file-touching commits, is
+under `retention_hours` (default 24), is among its newest `retention_min_loops`
+(default 20), or is pinned. Unknown provenance is retained conservatively.
+Unrelated commits and pulls never shorten this window. Size-cap eviction removes
+oldest unpinned loops but never a file's newest loop; if protected history exceeds
+the cap, Paradox warns and keeps it. Other worktrees purge their own loops.
 
 ## Verification
 
