@@ -25,7 +25,7 @@ pub struct Status {
 }
 
 enum Message {
-    Event(notify::Result<Event>),
+    Event(notify::Result<Event>, Instant),
     Stop,
 }
 
@@ -355,7 +355,7 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
         let _ = signals.send(Message::Stop);
     })?;
     let mut watcher: RecommendedWatcher = notify::recommended_watcher(move |event| {
-        let _ = sender.send(Message::Event(event));
+        let _ = sender.send(Message::Event(event, Instant::now()));
     })?;
     let mut coverage = Coverage::new(&repo)?;
     coverage.refresh(&repo, &mut watcher)?;
@@ -391,23 +391,33 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
     std::io::stdout().flush()?;
     let mut pending: HashMap<String, (Instant, Instant)> = HashMap::new();
     let mut recent: HashMap<String, Instant> = HashMap::new();
+    let mut owned_recent: Vec<(i64, String, Instant)> = Vec::new();
+    let mut bulk_owned: Vec<(i64, String)> = Vec::new();
+    let mut bulk_started: Option<Instant> = None;
+    let mut processed_time = Instant::now();
     let mut last_change = Instant::now();
     let mut bulk = false;
     let result = (|| -> Result<()> {
         loop {
             let clock = Instant::now();
-            let file_due = |&(first, last): &(Instant, Instant)| {
-                (first + Duration::from_secs(2)).max(last + Duration::from_millis(300))
-            };
+            if let Some(threshold) = bulk_started.take() {
+                bulk_owned.extend(owned_recent.drain(..)
+                    .filter(|(_,_,event)| threshold.saturating_duration_since(*event) <= Duration::from_secs(2))
+                    .map(|(id,path,_)| (id,path)));
+                if let Err(error) = LoopStore::open(repo.clone())
+                    .and_then(|mut store| store.classify_watch_bulk(&bulk_owned, false)) {
+                    log_at(&repo.store, &format!("watch bulk promotion: {error:#}"));
+                }
+            }
+            let file_due = |&(_, last): &(Instant, Instant)| last + Duration::from_millis(300);
             let batch_due = if bulk && !pending.is_empty() {
                 Some(last_change + Duration::from_secs(2))
             } else {
                 pending.values().map(file_due).min()
             };
-            // Deadline handling runs before receiving another event, so a
-            // continuous stream for one file cannot starve a different file
-            // that has already settled. Only the two-second classification
-            // lookahead is shared with the bulk policy; debounce is per file.
+            // Ordinary saves capture immediately after their own 300 ms
+            // debounce. A later bulk threshold reclassifies only our proven
+            // insertions, without delaying or merging ordinary settled saves.
             if batch_due.is_some_and(|due| clock >= due) {
                 let eligible: HashSet<_> = pending
                     .iter()
@@ -431,20 +441,33 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
                     );
                 }
                 let result = if paths.is_empty() {
-                    Ok(crate::store::CaptureReport::default())
+                    Ok(crate::store::WatchCapture { report: crate::store::CaptureReport::default(), created: Vec::new() })
                 } else {
                     Repo::discover(&repo.globals)
                         .and_then(LoopStore::open)
                         .and_then(|mut store| store.capture_watch(&paths, bulk))
                 };
                 match result {
-                    Ok(report) => state.loops_created += report.saved as u64,
+                    Ok(capture) => {
+                        state.loops_created += capture.report.saved as u64;
+                        if bulk { bulk_owned.extend(capture.created); }
+                        else {
+                            owned_recent.extend(capture.created.into_iter().filter_map(|(id,path)| {
+                                pending.get(&path).map(|times| (id,path.clone(),times.1))
+                            }));
+                        }
+                    },
                     Err(error) => log_at(&repo.store, &format!("watch capture: {error:#}")),
                 }
                 for name in eligible {
                     pending.remove(&name);
                 }
                 if bulk {
+                    if let Err(error) = LoopStore::open(repo.clone())
+                        .and_then(|mut store| store.classify_watch_bulk(&bulk_owned, true)) {
+                        log_at(&repo.store, &format!("watch bulk collapse: {error:#}"));
+                    }
+                    bulk_owned.clear();
                     recent.clear();
                     bulk = false;
                 }
@@ -461,10 +484,10 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
             let timeout = deadline.map(|time| time.saturating_duration_since(clock));
             match receive(&receiver, timeout)? {
                 Some(Message::Stop) => break,
-                Some(Message::Event(Err(error))) => {
+                Some(Message::Event(Err(error), _)) => {
                     log_at(&repo.store, &format!("watch native event: {error}"));
                 }
-                Some(Message::Event(Ok(event))) => {
+                Some(Message::Event(Ok(event), event_time)) => {
                     if matches!(event.kind, EventKind::Access(_)) {
                         continue;
                     }
@@ -494,18 +517,23 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
                             refresh = true;
                         }
                         if let Some(name) = coverage.relative(path) {
-                            let clock = Instant::now();
+                            let clock = event_time;
+                            processed_time = processed_time.max(clock);
                             pending
                                 .entry(name.clone())
-                                .and_modify(|times| times.1 = clock)
+                                .and_modify(|times| { times.0 = times.0.min(clock); times.1 = times.1.max(clock); })
                                 .or_insert((clock, clock));
                             recent.retain(|_, when| {
-                                clock.duration_since(*when) <= Duration::from_secs(2)
+                                processed_time.saturating_duration_since(*when) <= Duration::from_secs(2)
                             });
-                            recent.insert(name, clock);
-                            last_change = clock;
-                            if recent.len() > 50 {
+                            recent.entry(name).and_modify(|when| *when=(*when).max(clock)).or_insert(clock);
+                            last_change = last_change.max(clock);
+                            if !bulk {
+                                owned_recent.retain(|(_,_,when)| processed_time.saturating_duration_since(*when) <= Duration::from_secs(2));
+                            }
+                            if recent.len() > 50 && !bulk {
                                 bulk = true;
+                                bulk_started = Some(processed_time);
                             }
                         }
                     }
@@ -519,20 +547,25 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
                                 // only newly eligible paths after registration;
                                 // the ordinary settled capture reads their
                                 // latest state and shares the usual dedup.
-                                let clock = Instant::now();
+                                let clock = event_time;
+                                processed_time = processed_time.max(clock);
                                 recent.retain(|_, when| {
-                                    clock.duration_since(*when) <= Duration::from_secs(2)
+                                    processed_time.saturating_duration_since(*when) <= Duration::from_secs(2)
                                 });
                                 for name in coverage.files.difference(&previous) {
                                     pending
                                         .entry(name.clone())
-                                        .and_modify(|times| times.1 = clock)
+                                        .and_modify(|times| { times.0 = times.0.min(clock); times.1 = times.1.max(clock); })
                                         .or_insert((clock, clock));
-                                    recent.insert(name.clone(), clock);
-                                    last_change = clock;
+                                    recent.entry(name.clone()).and_modify(|when| *when=(*when).max(clock)).or_insert(clock);
+                                    last_change = last_change.max(clock);
                                 }
-                                if recent.len() > 50 {
+                                if !bulk {
+                                    owned_recent.retain(|(_,_,when)| processed_time.saturating_duration_since(*when) <= Duration::from_secs(2));
+                                }
+                                if recent.len() > 50 && !bulk {
                                     bulk = true;
+                                    bulk_started = Some(processed_time);
                                 }
                             }
                             Err(error) => {

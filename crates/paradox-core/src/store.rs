@@ -30,6 +30,11 @@ pub struct CaptureReport {
     pub hashed: usize,
 }
 
+pub struct WatchCapture {
+    pub report: CaptureReport,
+    pub created: Vec<(i64, String)>,
+}
+
 #[derive(Clone, Debug)]
 pub struct Loop {
     pub id: i64,
@@ -267,8 +272,52 @@ impl LoopStore {
         &mut self,
         inputs: &[std::path::PathBuf],
         bulk: bool,
-    ) -> Result<CaptureReport> {
-        self.capture_inner(inputs, bulk.then_some("bulk change"))
+    ) -> Result<WatchCapture> {
+        // The repository lock spans both reads and capture, so this range can
+        // contain only rows inserted by this watcher call, never other agents.
+        let before: i64 = self.index.query_row("SELECT COALESCE(MAX(id),0) FROM loops", [], |r| r.get(0))?;
+        let result = self.capture_inner(inputs, bulk.then_some("bulk change"));
+        let created: Vec<(i64, String)> = self.index.prepare("SELECT id,path FROM loops WHERE id>?1 AND worktree=?2 ORDER BY id")?
+            .query_map(params![before,self.repo.worktree], |r| Ok((r.get(0)?,r.get(1)?)))?
+            .collect::<rusqlite::Result<_>>()?;
+        let report = match result {
+            Ok(report) => report,
+            Err(error) => {
+                // Retain ownership even if a final checkpoint/GC failed after
+                // some durable insertions; the running watcher must not lose
+                // the ability to classify its own surviving rows.
+                self.log(&format!("watch capture: {error:#}"));
+                CaptureReport { saved: created.len(), ..CaptureReport::default() }
+            }
+        };
+        Ok(WatchCapture { report, created })
+    }
+
+    /// Classify only IDs proven to have been inserted by this watcher. Pins and
+    /// rows from editor/agent captures are never deleted by bulk coalescing.
+    pub(crate) fn classify_watch_bulk(&mut self, owned: &[(i64, String)], collapse: bool) -> Result<()> {
+        self.index.execute_batch("BEGIN IMMEDIATE")?;
+        let result = (|| -> Result<()> {
+            let mut latest: HashMap<&str, i64> = HashMap::new();
+            for (id,path) in owned {
+                if self.index.execute("UPDATE loops SET kind='scan',message='bulk change',auto_label=1 WHERE id=?1 AND worktree=?2 AND path=?3 AND pinned=0", params![id,self.repo.worktree,path])? != 0 {
+                    latest.entry(path).and_modify(|last| *last=(*last).max(*id)).or_insert(*id);
+                }
+            }
+            if collapse {
+                for (id,path) in owned {
+                    if latest.get(path.as_str()).is_some_and(|last| last != id) {
+                        self.index.execute("DELETE FROM loops WHERE id=?1 AND worktree=?2 AND path=?3 AND pinned=0", params![id,self.repo.worktree,path])?;
+                    }
+                }
+            }
+            Ok(())
+        })();
+        match result {
+            Ok(()) => self.index.execute_batch("COMMIT; PRAGMA wal_checkpoint(TRUNCATE);")?,
+            Err(error) => { self.index.execute_batch("ROLLBACK")?; return Err(error); },
+        }
+        Ok(())
     }
 
     fn capture_inner(
@@ -681,7 +730,14 @@ impl LoopStore {
             self.index.execute_batch("DELETE FROM stat_cache; DELETE FROM tracked_cache; PRAGMA wal_checkpoint(TRUNCATE); VACUUM;")?;
         }
         self.index.execute_batch("BEGIN IMMEDIATE")?;
-        let garbage = match self.evict() {
+        // Bulk classification can remove only loop references while keeping
+        // orphan blobs conservatively charged. Reclaim those references here;
+        // the durable commit still precedes orphan-file cleanup below.
+        let garbage = match (|| -> Result<Vec<String>> {
+            self.index.execute("DELETE FROM blobs WHERE hash NOT IN (SELECT blob_hash FROM loops)", [])?;
+            self.index.execute("UPDATE meta SET value=(SELECT COALESCE(SUM(stored_size),0) FROM blobs) WHERE key='blob_bytes'", [])?;
+            self.evict()
+        })() {
             Ok(g) => g,
             Err(e) => {
                 self.index.execute_batch("ROLLBACK")?;

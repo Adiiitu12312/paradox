@@ -1,5 +1,6 @@
 //! Real watcher sessions confined to disposable OS-temp repositories.
 use paradox_core::{repo::Repo, store::LoopStore};
+use paradox_core::blob::BlobStore;
 use std::fs;
 use std::io::{BufRead, BufReader};
 use std::path::Path;
@@ -334,6 +335,40 @@ fn checkout_sized_bulk_operation_is_one_scan_per_changed_file() {
     );
     drop(store);
     watch.stop();
+}
+
+#[test]
+fn ordinary_settled_save_is_captured_before_two_second_bulk_window() {
+    let temp = fixture(1); let root = temp.path(); let mut watch = Session::start(root);
+    fs::write(root.join("src/0.ts"), "//> first settled save\nfirst\n").unwrap();
+    let deadline = Instant::now() + Duration::from_millis(1800);
+    while count(root) == 0 && Instant::now() < deadline { std::thread::sleep(Duration::from_millis(25)); }
+    assert_eq!(count(root), 1, "300 ms settled save was held for the bulk window");
+    fs::write(root.join("src/0.ts"), "//> second settled save\nsecond\n").unwrap();
+    wait_for(|| count(root) == 2);
+    assert_eq!(store(root).loops("src/0.ts").unwrap()[0].message, "second settled save");
+    watch.stop();
+}
+
+#[test]
+fn paced_bulk_promotes_earlier_watcher_saves_and_keeps_latest_content() {
+    let temp = fixture(51); let root = temp.path(); let mut watch = Session::start(root);
+    fs::write(root.join("src/0.ts"), "//> earlier settled save\nfirst\n").unwrap();
+    wait_for(|| count(root) == 1);
+    let latest = "//> latest bulk state\nlatest\n";
+    fs::write(root.join("src/0.ts"), latest).unwrap();
+    for i in 1..51 {
+        fs::write(root.join(format!("src/{i}.ts")), "//> paced checkout\nchanged\n").unwrap();
+        std::thread::sleep(Duration::from_millis(15));
+    }
+    wait_for(|| store(root).index.query_row("SELECT COUNT(*) FROM loops WHERE kind='scan' AND message='bulk change'", [], |r| r.get::<_,i64>(0)).unwrap() == 51);
+    std::thread::sleep(Duration::from_millis(500));
+    let store = store(root);
+    assert_eq!(store.index.query_row("SELECT MAX(n) FROM (SELECT COUNT(*) n FROM loops WHERE kind='scan' GROUP BY path)", [], |r| r.get::<_,i64>(0)).unwrap(), 1);
+    assert!(store.index.query_row("SELECT COUNT(*) FROM loops", [], |r| r.get::<_,i64>(0)).unwrap() <= 52);
+    let saved = store.loops("src/0.ts").unwrap();
+    assert_eq!(store.blobs.get(&saved[0].blob_hash).unwrap(), latest.as_bytes());
+    drop(store); watch.stop();
 }
 
 #[test]
