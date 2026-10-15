@@ -24,9 +24,27 @@ pub fn require_migrated(repo: &Repo) -> Result<()> {
     Ok(())
 }
 pub fn migrate(repo: &Repo) -> Result<()> {
-    let Some(old) = legacy(repo).filter(|path| path.exists()) else {
+    let Some(old) = legacy(repo) else {
         return Ok(());
     };
+    if !old.try_exists()? {
+        return Ok(());
+    }
+    // This pathname is outside both store locations and is never unlinked:
+    // all new-version initializers serialize on the same stable inode.
+    let gate_path = repo.common.join("paradox-migration.lock");
+    reject_link(&gate_path)?;
+    let gate = OpenOptions::new()
+        .read(true)
+        .write(true)
+        .create(true)
+        .truncate(false)
+        .open(&gate_path)?;
+    fs2::FileExt::lock_exclusive(&gate).context("Cannot lock legacy store migration")?;
+    // Another initializer may have completed the move while this one waited.
+    if !old.try_exists()? {
+        return Ok(());
+    }
     reject_link(&old)?;
     ensure!(old.is_dir(), "Legacy store is not a directory");
     reject_link(&repo.store)?;
@@ -54,6 +72,15 @@ pub fn migrate(repo: &Repo) -> Result<()> {
         .open(watch_path)?;
     fs2::FileExt::try_lock_exclusive(&watch)
         .context("Stop paradox watch before migrating its store")?;
+    // Windows denies renaming a directory containing these open lock handles.
+    // Keep the common-dir migration gate while closing our old-store handles.
+    // Older binaries must be stopped before migration, as required above;
+    // every new-version store opener refuses while the legacy directory exists.
+    #[cfg(windows)]
+    {
+        drop(watch);
+        drop(lock);
+    }
     fs::rename(&old, &repo.store)
         .context("Cannot move the legacy store; its original contents were preserved")?;
     #[cfg(unix)]

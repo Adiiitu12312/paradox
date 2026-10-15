@@ -72,22 +72,17 @@ fn twenty_contended_savers_queue_paths_and_holder_drains_exact_final_content() {
         waits[10] < Duration::from_millis(50),
         "lock wait exceeds save budget"
     );
-    assert!(
-        {
-            let row = include_str!("../../../benchmarks/pending.csv")
-                .lines()
-                .find(|line| line.starts_with(&format!("{},", std::env::consts::OS)));
-            let ceiling = row.map_or(50.0, |row| {
-                let fields: Vec<_> = row.split(',').collect();
-                let baseline: f64 = fields[1].parse().unwrap();
-                let limit: f64 = fields[2].parse().unwrap();
-                limit.min(baseline * 1.2 + 1.0)
-            });
-            println!("pending median regression ceiling: {ceiling} ms");
-            totals[10] < Duration::from_secs_f64(ceiling / 1000.0)
-        },
-        "contended saves exceed their stored OS median exit budget"
-    );
+    let row = include_str!("../../../benchmarks/pending.csv")
+        .lines()
+        .find(|line| line.starts_with(&format!("{},", std::env::consts::OS)));
+    let ceiling = row.map_or(50.0, |row| {
+        let fields: Vec<_> = row.split(',').collect();
+        let baseline: f64 = fields[1].parse().unwrap();
+        let limit: f64 = fields[2].parse().unwrap();
+        let allowance: f64 = fields[3].parse().unwrap();
+        limit.min(baseline * allowance + 1.0)
+    });
+    println!("pending median regression ceiling: {ceiling} ms");
     fs::write(
         root.join("a.ts"),
         "//> final concurrent edit\nfinal state\n",
@@ -114,6 +109,14 @@ fn twenty_contended_savers_queue_paths_and_holder_drains_exact_final_content() {
             .count(),
         0
     );
+    // Functional assertions run in every profile. Shipped-performance gates,
+    // like the capture and pass-through benchmarks, use optimized release code.
+    if !cfg!(debug_assertions) {
+        assert!(
+            totals[10] < Duration::from_secs_f64(ceiling / 1000.0),
+            "contended saves exceed their stored OS median exit budget"
+        );
+    }
 }
 #[test]
 fn pending_handoff_from_another_worktree_uses_that_worktrees_current_file() {

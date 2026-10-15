@@ -99,6 +99,69 @@ fn migration_refuses_two_stores_without_removing_either() {
     );
     assert!(root.join(".git/paradox/index.sqlite3").is_file());
 }
+
+fn legacy_fixture() -> (tempfile::TempDir, i64, Vec<u8>) {
+    let directory = fixture();
+    let root = directory.path();
+    let bytes = b"//> legacy version\npreserve every byte\n".to_vec();
+    fs::write(root.join("a.ts"), &bytes).unwrap();
+    let id = {
+        let mut store = LoopStore::open(repo(root)).unwrap();
+        store.capture(&[]).unwrap();
+        store.loops("a.ts").unwrap()[0].id
+    };
+    fs::rename(root.join(".git/paradox"), root.join(".paradox")).unwrap();
+    (directory, id, bytes)
+}
+
+#[test]
+fn migration_refuses_active_legacy_store_or_watch_without_losing_history() {
+    for name in ["lock", "watch.lock"] {
+        let (directory, id, bytes) = legacy_fixture();
+        let root = directory.path();
+        let held = fs::OpenOptions::new().read(true).write(true).create(true)
+            .truncate(false).open(root.join(".paradox").join(name)).unwrap();
+        fs2::FileExt::lock_exclusive(&held).unwrap();
+        let error = paradox_core::migration::migrate(&repo(root)).unwrap_err();
+        let expected = if name == "lock" { "Legacy store is in use" } else { "Stop paradox watch" };
+        assert!(error.to_string().contains(expected), "{error:#}");
+        assert!(root.join(".paradox/index.sqlite3").is_file());
+        assert!(!root.join(".git/paradox").exists());
+        assert!(LoopStore::open(repo(root)).is_err());
+        drop(held);
+        paradox_core::migration::migrate(&repo(root)).unwrap();
+        let store = LoopStore::open(repo(root)).unwrap();
+        let loops = store.loops("a.ts").unwrap();
+        assert_eq!(loops[0].id, id);
+        assert_eq!(store.blobs.get(&loops[0].blob_hash).unwrap(), bytes);
+        assert!(!root.join(".paradox").exists());
+    }
+}
+
+#[test]
+fn simultaneous_migrations_share_one_gate_and_preserve_ids_and_bytes() {
+    let (directory, id, bytes) = legacy_fixture();
+    let root = directory.path();
+    let first = repo(root);
+    let second = first.clone();
+    let start = std::sync::Barrier::new(3);
+    std::thread::scope(|scope| {
+        let a = scope.spawn(|| { start.wait(); paradox_core::migration::migrate(&first) });
+        let b = scope.spawn(|| { start.wait(); paradox_core::migration::migrate(&second) });
+        start.wait();
+        a.join().unwrap().unwrap();
+        b.join().unwrap().unwrap();
+    });
+    assert!(!root.join(".paradox").exists());
+    assert!(root.join(".git/paradox-migration.lock").is_file());
+    let store = LoopStore::open(repo(root)).unwrap();
+    let loops = store.loops("a.ts").unwrap();
+    assert_eq!(loops.len(), 1);
+    assert_eq!(loops[0].id, id);
+    assert_eq!(store.blobs.get(&loops[0].blob_hash).unwrap(), bytes);
+    assert_eq!(store.index.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0)).unwrap(), "ok");
+}
+
 #[test]
 fn deletion_has_no_blob_reappearance_keeps_history_and_rewind_restores_before_deletion() {
     let directory = fixture();
