@@ -6,5 +6,7 @@ windows,15.3758,20
 # OS limits remain 5 ms on Linux/macOS and 20 ms on Windows.
 # Ceiling: min(OS limit, baseline * 1.5 + 1 ms); stored observations never auto-rise.
 # After 16 warm-ups each, interleave 201 samples per executable per round.
-# Compare signed paired median differences in three consecutive rounds in one run.
-# Fail a command only when at least two rounds exceed its existing ceiling.
+# CI compares signed paired medians in three consecutive fresh-host assessments.
+# All use the same precompiled binary/harness; all reports and raw pairs are retained.
+# Fail a command when at least two assessments exceed its existing ceiling; missing reports fail.
+# Direct local tests retain three consecutive rounds in one process.

@@ -1,0 +1,52 @@
+name: One fixed fresh-host pass-through assessment
+on:
+  workflow_call:
+    inputs:
+      attempt:
+        required: true
+        type: number
+      source:
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  assess:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: paradox-Linux-X64
+          - os: macos-15
+            artifact: paradox-macOS-ARM64
+          - os: windows-latest
+            artifact: paradox-Windows-X64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.source }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: benchmark-bin
+      - name: Restore Unix executable permissions
+        if: runner.os != 'Windows'
+        run: chmod +x benchmark-bin/paradox benchmark-bin/performance-test
+      - name: Record one paired Rust assessment
+        shell: bash
+        env:
+          GITHUB_SHA: ${{ inputs.source }}
+        run: |
+          suffix=""
+          if [[ "$RUNNER_OS" == "Windows" ]]; then suffix=".exe"; fi
+          python scripts/passthrough_ci.py record "benchmark-bin/performance-test$suffix" "benchmark-bin/paradox$suffix" "passthrough-report/report.json" "${{ inputs.attempt }}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: passthrough-${{ runner.os }}-${{ runner.arch }}-${{ inputs.attempt }}
+          path: passthrough-report/
+          if-no-files-found: error
+          retention-days: 7

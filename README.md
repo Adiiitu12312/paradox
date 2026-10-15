@@ -10,7 +10,7 @@ The [M3 verification report](docs/milestones/M3.md) records history, rewind and 
 This build implements the dispatcher, loop capture, per-file history, compare,
 undoable rewind, pins, tracking, setup, editor/AI hooks and commit handling.
 Functional and terminal checks pass on all three OSes. Pass-through timing uses
-201 interleaved samples per executable in each of three rounds; two rounds must
+201 interleaved samples per executable in each of three assessments; two must
 exceed the existing ceiling to fail. OS limits and stored baselines are unchanged.
 See the [M4 report](docs/milestones/M4.md) for the accepted boundary exception.
 M4.5's manual watcher is implemented and undergoing final acceptance; the UI
@@ -250,12 +250,17 @@ smaller of its limit and its observed median plus 50% and 1 ms scheduling varian
 Baselines never increase automatically. M4's Run-on-Save configuration uses
 `isAsync: true`, so an editor save does not wait for capture.
 
-The release test measures 201 samples of each executable per round, after 16
-warm-up samples each, for both version and status on all three OSes. Git and
-Paradox runs are interleaved with counterbalanced pair order in one test process.
-Each of three consecutive rounds reports its median signed paired difference;
-a command fails only when at least two rounds exceed its ceiling. All three
-rounds run, so a lone noisy result cannot fail or trigger selective retries.
+The release test measures 201 samples of each executable per assessment, after
+16 warm-up samples each, for both version and status on all three OSes. Git and
+Paradox runs are interleaved with counterbalanced pair order in one test process
+within each assessment. CI schedules three consecutive assessments on fresh
+hosted runners, using the same precompiled release binary and Rust timing harness.
+A command fails only when at least two median signed paired differences exceed
+its ceiling. All three assessments always run; their raw pairs, binary hashes
+and results are retained. Missing or invalid reports fail the gate. This also
+covers noise affecting an entire runner, without selectively retrying failures.
+Direct local release tests use three consecutive rounds in one process.
+Capture performance remains a separate strict gate with no rerun voting.
 [Stored baselines](benchmarks/passthrough.csv) also catch
 regressions: the ceiling is the smaller of the OS limit and the recorded baseline
 plus 50% and 1 ms scheduling allowance. Point observations are recorded separately;

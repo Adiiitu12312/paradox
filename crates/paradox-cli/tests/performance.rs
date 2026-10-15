@@ -61,6 +61,22 @@ fn passthrough_overhead_within_stored_baseline() {
     let limit_ms: f64 = fields[2].parse().unwrap();
     let ceiling_ms = limit_ms.min(baseline_ms * 1.5 + 1.0);
     let ceiling = Duration::from_secs_f64(ceiling_ms / 1000.0);
+    let report_path = std::env::var_os("PARADOX_BENCH_REPORT").map(std::path::PathBuf::from);
+    let binary = std::env::var("PARADOX_BENCH_BINARY")
+        .unwrap_or_else(|_| env!("CARGO_BIN_EXE_paradox").to_owned());
+    let attempt = if report_path.is_some() {
+        assert!(std::path::Path::new(&binary).is_absolute());
+        let attempt: usize = std::env::var("PARADOX_BENCH_ATTEMPT")
+            .expect("recorder requires attempt")
+            .parse()
+            .unwrap();
+        assert!((1..=3).contains(&attempt));
+        attempt
+    } else {
+        1
+    };
+    let rounds = if report_path.is_some() { 1 } else { 3 };
+    let mut measurements = Vec::new();
     println!(
         "OS limit={limit_ms} ms; stored baseline={baseline_ms} ms; regression ceiling={ceiling_ms} ms"
     );
@@ -75,44 +91,85 @@ fn passthrough_overhead_within_stored_baseline() {
     );
     let mut below_limit = true;
     for args in [&["--version"][..], &["status", "--porcelain=v2", "-z"]] {
-        let mut exceeded = [false; 3];
+        let mut exceeded = vec![false; rounds];
         for (round, exceeded) in exceeded.iter_mut().enumerate() {
             let mut direct = Vec::new();
             let mut wrapped = Vec::new();
             let mut differences = Vec::new();
             for _ in 0..16 {
                 elapsed("git", root.path(), args);
-                elapsed(env!("CARGO_BIN_EXE_paradox"), root.path(), args);
+                elapsed(&binary, root.path(), args);
             }
             // Alternate ordering to reduce bias from scheduling and filesystem caches.
             for n in 0..201 {
-                let (a, b) = if (n + round) % 2 == 0 {
+                let (a, b) = if (n + round + attempt - 1) % 2 == 0 {
                     (
                         elapsed("git", root.path(), args),
-                        elapsed(env!("CARGO_BIN_EXE_paradox"), root.path(), args),
+                        elapsed(&binary, root.path(), args),
                     )
                 } else {
-                    let b = elapsed(env!("CARGO_BIN_EXE_paradox"), root.path(), args);
+                    let b = elapsed(&binary, root.path(), args);
                     (elapsed("git", root.path(), args), b)
                 };
                 direct.push(a);
                 wrapped.push(b);
                 differences.push(b.as_nanos() as i128 - a.as_nanos() as i128);
             }
+            let samples = direct
+                .iter()
+                .zip(&wrapped)
+                .zip(&differences)
+                .map(|((a, b), difference)| serde_json::json!({
+                    "git_ns": a.as_nanos() as u64,
+                    "paradox_ns": b.as_nanos() as u64,
+                    "difference_ns": *difference as i64,
+                }))
+                .collect::<Vec<_>>();
             let git = median(&mut direct);
             let paradox = median(&mut wrapped);
             // Keep signed paired differences until after the median, so scheduling
             // noise cannot bias the result by clamping individual negative samples.
             let overhead = Duration::from_nanos(median(&mut differences).max(0) as u64);
             println!(
-                "{args:?}: round={}/3, git median={git:?}, paradox median={paradox:?}, paired overhead={overhead:?}, samples_each=201, ceiling_ms={ceiling_ms}",
+                "{args:?}: round={}/{rounds}, git median={git:?}, paradox median={paradox:?}, paired overhead={overhead:?}, samples_each=201, ceiling_ms={ceiling_ms}",
                 round + 1
             );
             *exceeded = overhead > ceiling;
+            measurements.push(serde_json::json!({
+                "args": args,
+                "baseline_ms": baseline_ms,
+                "limit_ms": limit_ms,
+                "ceiling_ns": ceiling.as_nanos() as u64,
+                "git_median_ns": git.as_nanos() as u64,
+                "paradox_median_ns": paradox.as_nanos() as u64,
+                "overhead_ns": overhead.as_nanos() as u64,
+                "exceeded": *exceeded,
+                "samples": samples,
+            }));
         }
-        let failed = persistent_regression(exceeded);
+        let failed = if report_path.is_some() {
+            // Every fixed fresh-host assessment is retained; the CI aggregator
+            // alone applies the two-of-three rule after all hosts finish.
+            false
+        } else {
+            persistent_regression(exceeded.as_slice().try_into().unwrap())
+        };
         println!("{args:?}: exceeded={exceeded:?}, persistent_regression={failed}");
         below_limit &= !failed;
+    }
+    if let Some(path) = report_path {
+        assert!(path.is_absolute(), "recorder report path must be absolute");
+        let report = serde_json::json!({
+            "schema": 1,
+            "os": std::env::consts::OS,
+            "arch": std::env::consts::ARCH,
+            "source": std::env::var("GITHUB_SHA").expect("recorder requires source SHA"),
+            "attempt": attempt,
+            "samples_each": 201,
+            "warmups_each": 16,
+            "measurements": measurements,
+        });
+        std::fs::write(path, serde_json::to_vec_pretty(&report).unwrap()).unwrap();
     }
     assert!(
         below_limit,

@@ -31,6 +31,8 @@ jobs:
         with:
           cache-on-failure: true
       - run: cargo fmt --all --check
+      - name: Verify fixed-assessment aggregation and report validation
+        run: python -m unittest discover -s scripts -p test_passthrough_ci.py
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
         if: always()
       - run: cargo test --workspace --locked --features paradox-cli/fault-injection
@@ -49,21 +51,59 @@ jobs:
       - name: Verify terminal colors, pager, editor and Ctrl+C
         if: runner.os != 'Windows'
         run: python3 scripts/test_terminal.py target/${{ matrix.target }}/release/paradox
+      - name: Package the exact release binary and precompiled timing harness
+        if: ${{ !cancelled() && steps.release.outcome == 'success' }}
+        shell: bash
+        run: |
+          cargo test --release --test performance --locked --no-run --message-format=json > performance-build.jsonl
+          mkdir -p benchmark-bin
+          suffix=''
+          if [ "$RUNNER_OS" = Windows ]; then suffix='.exe'; fi
+          cp "target/${{ matrix.target }}/release/paradox$suffix" "benchmark-bin/paradox$suffix"
+          python scripts/passthrough_ci.py select performance-build.jsonl "benchmark-bin/performance-test$suffix"
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() && steps.release.outcome == 'success' }}
         with:
           name: paradox-${{ runner.os }}-${{ runner.arch }}
-          path: |
-            target/${{ matrix.target }}/release/paradox
-            target/${{ matrix.target }}/release/paradox.exe
+          path: benchmark-bin/
           if-no-files-found: error
           retention-days: 7
-      - run: cargo test --release --test performance --locked -- --ignored --nocapture
-        if: ${{ !cancelled() && steps.release.outcome == 'success' }}
       - run: cargo test --release --test capture_performance --locked -- --ignored --nocapture
         if: ${{ !cancelled() && steps.release.outcome == 'success' }}
         env:
           PARADOX_PROFILE_CAPTURE: '1'
+  passthrough-1:
+    needs: test
+    if: ${{ !cancelled() }}
+    uses: ./.github/workflows/passthrough-repeat.yml
+    with:
+      attempt: 1
+      source: ${{ github.sha }}
+  passthrough-2:
+    needs: passthrough-1
+    if: ${{ !cancelled() }}
+    uses: ./.github/workflows/passthrough-repeat.yml
+    with:
+      attempt: 2
+      source: ${{ github.sha }}
+  passthrough-3:
+    needs: passthrough-2
+    if: ${{ !cancelled() }}
+    uses: ./.github/workflows/passthrough-repeat.yml
+    with:
+      attempt: 3
+      source: ${{ github.sha }}
+  passthrough-gate:
+    needs: [passthrough-1, passthrough-2, passthrough-3]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: passthrough-*
+          path: passthrough-reports
+      - run: python3 scripts/passthrough_ci.py aggregate passthrough-reports
   audit:
     runs-on: ubuntu-latest
     steps:

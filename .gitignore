@@ -2,3 +2,4 @@
 /.tools/
 /.artifacts/
 .paradox/
+__pycache__/
