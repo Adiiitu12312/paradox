@@ -16,6 +16,11 @@ pub struct Repo {
     pub head: String,
 }
 
+pub struct Changes {
+    pub dirty: HashSet<String>,
+    pub renames: Vec<(String, String)>,
+}
+
 impl Repo {
     pub fn discover(globals: &[OsString]) -> Result<Self> {
         let mut args = globals.to_vec();
@@ -161,8 +166,31 @@ impl Repo {
     }
 
     pub fn dirty(&self) -> Result<HashSet<String>> {
+        Ok(self.changes()?.dirty)
+    }
+
+    /// Index/HEAD comparison only; never a working-tree stat scan on saves.
+    pub fn staged_renames(&self) -> Result<Vec<(String, String)>> {
+        let output = self.git(&["--no-lazy-fetch", "diff", "--cached", "--name-status", "-z", "--find-renames", "--no-ext-diff", "--no-textconv", "--no-color", "--"])?;
+        let mut entries = output.stdout.split(|byte| *byte == 0);
+        let mut renames = Vec::new();
+        while let Some(status) = entries.next() {
+            if status.is_empty() { continue; }
+            let from = entries.next().context("invalid Git name-status record")?;
+            if matches!(status.first(), Some(b'R' | b'C')) {
+                let to = entries.next().context("invalid Git rename record")?;
+                if status.first() == Some(&b'R') {
+                    renames.push((std::str::from_utf8(from)?.into(), std::str::from_utf8(to)?.into()));
+                }
+            }
+        }
+        Ok(renames)
+    }
+
+    pub fn changes(&self) -> Result<Changes> {
         let output = self.git(&["status", "--porcelain=v2", "-z", "--untracked-files=no"])?;
         let mut dirty = HashSet::new();
+        let mut renames = Vec::new();
         let mut entries = output.stdout.split(|b| *b == 0);
         while let Some(entry) = entries.next() {
             let fields = match entry.first() {
@@ -179,11 +207,16 @@ impl Repo {
                 dirty.insert(path.to_string());
             }
             if entry.first() == Some(&b'2') {
-                let _ = entries.next();
+                if let Some(old) = entries.next()
+                    && entry.splitn(10, |byte| *byte == b' ').nth(8).is_some_and(|score| score.starts_with(b"R"))
+                    && let (Ok(old), Some(new)) = (std::str::from_utf8(old), entry.splitn(10, |byte| *byte == b' ').nth(9).and_then(|path| std::str::from_utf8(path).ok()))
+                {
+                    renames.push((old.into(), new.into()));
+                }
             }
         }
         dirty.extend(self.extra_tracked()?);
-        Ok(dirty)
+        Ok(Changes { dirty, renames })
     }
 
     /// Refuse symlinks in any component, including directory links outside Git.

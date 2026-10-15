@@ -298,10 +298,11 @@ impl LoopStore {
             eprintln!("capture profile: tracked {:?}", started.elapsed());
         }
         let all = inputs.is_empty();
+        if !all && !cached { self.refresh_staged_renames()?; }
         // Only a stat-changed file without a prior captured hash needs Git's
         // dirty set to distinguish its HEAD baseline. Warm scans avoid a second
         // full filesystem walk by Git.
-        let mut dirty = None;
+        let mut dirty = if all { self.refresh_git_changes()? } else { None };
         let cache_map: Option<HashMap<String, (i64, u64, String)>> = if all {
             Some(
                 self.index

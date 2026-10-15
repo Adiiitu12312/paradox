@@ -238,6 +238,23 @@ fn version_one_store_migrates_without_losing_content_or_ids() {
 }
 
 #[test]
+fn git_reported_rename_keeps_history_and_stale_message_rules() {
+    let root = fixture();
+    let mut store = open(root.path());
+    let original = save(&mut store, "a.ts", b"//> rename label\nfirst\n");
+    store.capture(&[]).unwrap();
+    git(root.path(), &["mv", "a.ts", "renamed.ts"]);
+    let next = save(&mut store, "renamed.ts", b"//> rename label\nsecond\n");
+    let records = store.loops("renamed.ts").unwrap();
+    assert!(records.iter().any(|record| record.id == original));
+    assert!(records.iter().find(|record| record.id == next).unwrap().auto_label);
+    assert!(store.loops("a.ts").unwrap().is_empty());
+    store.rewind_file(Path::new("renamed.ts"), &original.to_string()).unwrap();
+    assert_eq!(fs::read(root.path().join("renamed.ts")).unwrap(), b"//> rename label\nfirst\n");
+    assert!(!root.path().join("a.ts").exists());
+}
+
+#[test]
 fn tracked_lists_and_version_ids_are_isolated_between_worktrees() {
     let root = fixture();
     let other = tempfile::tempdir().unwrap();

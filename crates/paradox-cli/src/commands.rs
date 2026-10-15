@@ -101,6 +101,7 @@ fn execute(args: &[OsString], index: usize) -> Result<()> {
             let options = CompareArgs::try_parse_from(&args[index..])?;
             let mut store = open(args, index)?;
             let path = store.repo.relative(&options.file)?;
+            store.refresh_git_changes()?;
             // Explicit versions are read before the fallback scan can evict
             // older unpinned content. No working-file write is involved.
             let diff = match (&options.a, &options.b) {

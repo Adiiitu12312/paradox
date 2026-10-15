@@ -30,6 +30,7 @@ pub struct Version {
 }
 
 impl Version {
+    pub fn mode(&self) -> Option<u32> { self.mode }
     fn from_loop(record: Loop) -> Self {
         Self { path: record.path, source: Source::Loop(record.blob_hash), id: Some(record.id), ts: record.ts,
             label: format!("loop {}", record.id), deleted: record.deleted, mode: record.mode }
@@ -442,6 +443,7 @@ impl LoopStore {
     pub fn rewind_file(&mut self, input: &Path, selector: &str) -> Result<i64> {
         ensure!(selector != "working", "choose a stored version to rewind to");
         let path = self.repo.relative(input)?;
+        self.refresh_git_changes()?;
         // Resolve immutable targets before a fallback scan can evict old data.
         let version = self.resolve(&path, selector)?;
         let was_pinned = if let Some(id) = version.id {
