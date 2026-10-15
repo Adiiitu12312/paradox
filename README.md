@@ -3,7 +3,7 @@
 A Rust Git wrapper that will add local per-file loops and a browser Git UI.
 Git remains the source of truth; every Git operation uses the installed Git binary.
 
-**Development status: M1–M4 complete; M4 has an approved macOS timing exception.**
+**Development status: M1–M4.5 complete; M5 is next.**
 See the [M1 verification report](docs/milestones/M1.md) for measured results.
 The [M2 verification report](docs/milestones/M2.md) records capture tests and timing gates.
 The [M3 verification report](docs/milestones/M3.md) records history, rewind and tracking validation.
@@ -13,8 +13,12 @@ Functional and terminal checks pass on all three OSes. Pass-through timing uses
 201 interleaved samples per executable in each of three assessments; two must
 exceed the existing ceiling to fail. OS limits and stored baselines are unchanged.
 See the [M4 report](docs/milestones/M4.md) for the accepted boundary exception.
-M4.5's manual watcher is implemented and undergoing final acceptance; the UI
-arrives later. Do not alias `git` to this development build.
+The [M4.5 report](docs/milestones/M4.5.md) records the complete three-OS rerun:
+functional, terminal, concurrency, performance, audit and ten-minute idle gates
+all passed. Idle watcher RSS was 9.54 MB on Linux, 13.45 MB on macOS and 7.47 MB
+on Windows, with near-zero CPU. No new threshold exception was needed. The UI
+arrives later. This is suitable for a controlled Git-backed trial; full release
+hardening remains in M9. Do not alias `git` to this development build yet.
 
 ## Build on GitHub (preferred for this project)
 
