@@ -839,16 +839,25 @@ mod watch_bulk_tests {
     use std::process::Command;
 
     fn git(root: &Path, args: &[&str]) {
-        let output = Command::new("git").args(args).current_dir(root)
+        let output = Command::new("git")
+            .args(args)
+            .current_dir(root)
             .env("GIT_CONFIG_NOSYSTEM", "1")
             .env("GIT_CONFIG_GLOBAL", root.join("absent-global"))
             .env("GIT_AUTHOR_NAME", "Paradox Test")
             .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
             .env("GIT_COMMITTER_NAME", "Paradox Test")
             .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
-            .env_remove("GIT_DIR").env_remove("GIT_WORK_TREE").env_remove("GIT_INDEX_FILE")
-            .output().unwrap();
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+            .env_remove("GIT_DIR")
+            .env_remove("GIT_WORK_TREE")
+            .env_remove("GIT_INDEX_FILE")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     fn watch_save(store: &mut LoopStore, bytes: &[u8]) -> i64 {
@@ -877,12 +886,20 @@ mod watch_bulk_tests {
         store.pin_loop(pinned, true).unwrap();
         let old = watch_save(&mut store, b"//> old watcher\nold\n");
         let old_hash = store.loops("a.ts").unwrap()[0].blob_hash.clone();
-        fs::write(root.join("a.ts"), "//> independent editor\nindependent editor state\n").unwrap();
+        fs::write(
+            root.join("a.ts"),
+            "//> independent editor\nindependent editor state\n",
+        )
+        .unwrap();
         assert_eq!(store.capture(&[root.join("a.ts")]).unwrap().saved, 1);
         let editor = store.loops("a.ts").unwrap()[0].clone();
         let latest_bytes = b"//> newest watcher\nlatest state must survive bulk collapse\n";
         let latest = watch_save(&mut store, latest_bytes);
-        let owned = vec![(pinned, "a.ts".into()), (old, "a.ts".into()), (latest, "a.ts".into())];
+        let owned = vec![
+            (pinned, "a.ts".into()),
+            (old, "a.ts".into()),
+            (latest, "a.ts".into()),
+        ];
         store.classify_watch_bulk(&owned, false).unwrap();
         let promoted = store.loops("a.ts").unwrap();
         for id in [old, latest] {
@@ -897,15 +914,46 @@ mod watch_bulk_tests {
         assert!(pin.pinned);
         assert_eq!((&*pin.kind, &*pin.message), ("save", "pinned watcher"));
         let untouched = retained.iter().find(|row| row.id == editor.id).unwrap();
-        assert_eq!((&untouched.kind, &untouched.message, &untouched.blob_hash), (&editor.kind, &editor.message, &editor.blob_hash));
+        assert_eq!(
+            (&untouched.kind, &untouched.message, &untouched.blob_hash),
+            (&editor.kind, &editor.message, &editor.blob_hash)
+        );
         let newest = retained.iter().find(|row| row.id == latest).unwrap();
         assert_eq!(store.blobs.get(&newest.blob_hash).unwrap(), latest_bytes);
-        assert!(store.blobs.exists(&old_hash));
+        assert!(store.blobs.exists(&old_hash).unwrap());
         store.gc().unwrap();
-        assert!(!store.blobs.exists(&old_hash));
-        assert_eq!(store.index.query_row("SELECT COUNT(*) FROM blobs WHERE hash NOT IN (SELECT blob_hash FROM loops)", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
-        assert_eq!(store.index.query_row("SELECT COUNT(*) FROM loops WHERE blob_hash NOT IN (SELECT hash FROM blobs)", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
-        assert_eq!(store.index.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0)).unwrap(), "ok");
-        for row in store.loops("a.ts").unwrap() { assert!(store.blobs.exists(&row.blob_hash)); }
+        assert!(!store.blobs.exists(&old_hash).unwrap());
+        assert_eq!(
+            store
+                .index
+                .query_row(
+                    "SELECT COUNT(*) FROM blobs WHERE hash NOT IN (SELECT blob_hash FROM loops)",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            store
+                .index
+                .query_row(
+                    "SELECT COUNT(*) FROM loops WHERE blob_hash NOT IN (SELECT hash FROM blobs)",
+                    [],
+                    |r| r.get::<_, i64>(0)
+                )
+                .unwrap(),
+            0
+        );
+        assert_eq!(
+            store
+                .index
+                .query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0))
+                .unwrap(),
+            "ok"
+        );
+        for row in store.loops("a.ts").unwrap() {
+            assert!(store.blobs.exists(&row.blob_hash).unwrap());
+        }
     }
 }
