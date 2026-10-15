@@ -205,10 +205,17 @@ fn large_scan_keeps_baseline_and_detects_changes_after_warmup() {
     let mut store = open(temp.path());
     assert_eq!(store.capture(&[]).unwrap().saved, 0);
     assert_eq!(store.capture(&[]).unwrap().hashed, 0);
-    fs::write(temp.path().join("tracked-599.ts"), b"//> last worker\nchanged\n").unwrap();
+    fs::write(
+        temp.path().join("tracked-599.ts"),
+        b"//> last worker\nchanged\n",
+    )
+    .unwrap();
     let report = store.capture(&[]).unwrap();
     assert_eq!((report.saved, report.hashed), (1, 1));
-    assert_eq!(store.loops("tracked-599.ts").unwrap()[0].message, "last worker");
+    assert_eq!(
+        store.loops("tracked-599.ts").unwrap()[0].message,
+        "last worker"
+    );
     assert_eq!(store.capture(&[]).unwrap().hashed, 0);
 }
 

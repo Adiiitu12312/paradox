@@ -279,7 +279,10 @@ impl LoopStore {
         let metadata = if all {
             self.repo.scan_metadata(&tracked)?
         } else {
-            tracked.iter().map(|path| self.repo.regular_file_cached(path, &mut self.checked_dirs)).collect()
+            tracked
+                .iter()
+                .map(|path| self.repo.regular_file_cached(path, &mut self.checked_dirs))
+                .collect()
         };
         if profile {
             eprintln!("capture profile: metadata {:?}", started.elapsed());

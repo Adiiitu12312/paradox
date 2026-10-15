@@ -180,19 +180,36 @@ impl Repo {
 
     /// Stat only supplied tracked paths. Windows metadata calls benefit from
     /// bounded I/O concurrency; each worker still verifies directory components.
-    pub fn scan_metadata(&self, paths: &[String]) -> Result<Vec<Result<Option<std::fs::Metadata>>>> {
-        let workers = if cfg!(windows) && paths.len() >= 512 { 8 } else { 1 };
+    pub fn scan_metadata(
+        &self,
+        paths: &[String],
+    ) -> Result<Vec<Result<Option<std::fs::Metadata>>>> {
+        let workers = if cfg!(windows) && paths.len() >= 512 {
+            8
+        } else {
+            1
+        };
         let chunk_size = paths.len().div_ceil(workers).max(1);
         std::thread::scope(|scope| {
-            let handles: Vec<_> = paths.chunks(chunk_size).map(|chunk| {
-                scope.spawn(move || {
-                    let mut checked = HashSet::new();
-                    chunk.iter().map(|path| self.regular_file_cached(path, &mut checked)).collect::<Vec<_>>()
+            let handles: Vec<_> = paths
+                .chunks(chunk_size)
+                .map(|chunk| {
+                    scope.spawn(move || {
+                        let mut checked = HashSet::new();
+                        chunk
+                            .iter()
+                            .map(|path| self.regular_file_cached(path, &mut checked))
+                            .collect::<Vec<_>>()
+                    })
                 })
-            }).collect();
+                .collect();
             let mut metadata = Vec::with_capacity(paths.len());
             for handle in handles {
-                metadata.extend(handle.join().map_err(|_| anyhow::anyhow!("stat worker failed"))?);
+                metadata.extend(
+                    handle
+                        .join()
+                        .map_err(|_| anyhow::anyhow!("stat worker failed"))?,
+                );
             }
             Ok(metadata)
         })
