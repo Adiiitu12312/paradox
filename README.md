@@ -3,7 +3,7 @@
 A Rust Git wrapper that will add local per-file loops and a browser Git UI.
 Git remains the source of truth; every Git operation uses the installed Git binary.
 
-**Development status: M1–M4.5 complete; M5 is in progress.**
+**Development status: M1–M5 complete; M6 browser UI is next.**
 See the [M1 verification report](docs/milestones/M1.md) for measured results.
 The [M2 verification report](docs/milestones/M2.md) records capture tests and timing gates.
 The [M3 verification report](docs/milestones/M3.md) records history, rewind and tracking validation.
@@ -150,7 +150,8 @@ change since `HEAD~3` (the root commit when fewer ancestors exist). Type to
 filter, select with Enter, or cancel with Esc/Ctrl+C. Unborn repositories use
 only eligible uncommitted paths. Raw untracked directories are ignored. The
 picker holds no loop-store lock while waiting; selecting opens the same loops
-view. See the [M5 progress report](docs/milestones/M5.md) for pending validation.
+view. The [M5 verification report](docs/milestones/M5.md) records accepted
+cross-platform functional, native terminal and performance results.
 A comparison without selectors first captures pending edits and can therefore
 be empty. Use explicit versions to inspect earlier changes.
 

@@ -1,13 +1,15 @@
 # Windows development builds and Application Control
 
-**Current status:** the owner has turned Smart App Control off. The `83df63c`
-Windows build passed a local smoke check at 13:11 UTC on October 15: Git parity,
+**Current status:** the owner has turned Smart App Control off. The `b52ca2c`
+Windows build passed a local smoke check at 13:54 UTC on October 15: Git parity,
 one native watcher save, status, stop and process exit, all in a disposable
 OS-temp repository. Node remains v26.4.0. No further security change is needed
 for the development binary tested here.
-The exact release from run `38739659259` has SHA-256
-`0b0a2af622356372a19373d28ac620353d0509576eb7f4f281e18cfacff0eacf`.
-Its watcher PID 15924 was absent after stop; the fixture was removed.
+The exact release from run `38744135728` has SHA-256
+`229b16ee7384dd26d418c49ecda2fe5eb27c07e772e9850248d3e7d7d95215cf`.
+Its watcher PID 26112 was absent after stop; the fixture was removed. Corrected
+native timeline selection and cancellation also passed on all three OSes in
+run `38746186331`, using the same release hashes as the performance gates.
 
 On October 15, 2026, Windows Code Integrity event 3077 recorded
 `C:\Program Files\nodejs\node.exe` trying to launch the downloaded Paradox
