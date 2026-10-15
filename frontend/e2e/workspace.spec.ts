@@ -25,7 +25,8 @@ test.beforeEach(async () => {
   git('add', 'sample.ts'); git('commit', '-qm', 'Initial fixture')
   working = '//> clarify first value\n' + original.replace('value0 = 0', 'value0 = 100').replace('value39 = 39', 'value39 = 3900')
   writeFileSync(join(root, 'sample.ts'), working)
-  child = spawn(binary, ['ui', '--no-open'], { cwd: root, env: { ...env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(root, 'absent-global') }, stdio: ['ignore', 'pipe', 'pipe'] })
+  const assets = process.env.PARADOX_ASSETS_DIR ? ['--assets-dir', resolve(process.env.PARADOX_ASSETS_DIR)] : []
+  child = spawn(binary, ['ui', '--no-open', ...assets], { cwd: root, env: { ...env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(root, 'absent-global') }, stdio: ['ignore', 'pipe', 'pipe'] })
   exited = new Promise((resolveExit, reject) => { child!.once('exit', resolveExit); child!.once('error', reject) })
   url = await new Promise<string>((resolveUrl, reject) => {
     let output = ''
@@ -95,7 +96,7 @@ test('user hooks can reject a browser commit without losing the draft or working
   await expect(page.getByRole('status')).toContainText('selection staged')
   await page.getByLabel('Commit message').fill('Keep this draft')
   await page.getByRole('button', { name: 'Commit 1 files', exact: true }).click()
-  await expect(page.getByRole('alert')).toContainText('UI fixture hook refused commit')
+  await expect(page.getByRole('alert')).toContainText('Git commit failed')
   await expect(page.getByLabel('Commit message')).toHaveValue('Keep this draft')
   expect(git('rev-parse', 'HEAD')).toBe(before)
   expect(readFileSync(join(root, 'sample.ts'), 'utf8')).toBe(working)
@@ -104,12 +105,15 @@ test('user hooks can reject a browser commit without losing the draft or working
 })
 
 test('virtualizes and pages the native graph of a 100,000-commit repository', async ({ page }) => {
+  await page.goto(url)
+  await expect(page.locator('.sidebar-note')).toContainText('Local session')
+  const base = git('rev-parse', 'HEAD').trim()
   const stream = Array.from({ length: 100_000 }, (_, index) => {
     const subject = `Large history ${index}`
-    return `commit refs/heads/main\ncommitter UI Fixture <fixture@example.invalid> ${1_700_000_000 + index} +0000\ndata ${Buffer.byteLength(subject)}\n${subject}\n${index === 0 ? 'from refs/heads/main\n' : ''}\n`
+    return `commit refs/heads/main\ncommitter UI Fixture <fixture@example.invalid> ${1_700_000_000 + index} +0000\ndata ${Buffer.byteLength(subject)}\n${subject}\n${index === 0 ? `from ${base}\n` : ''}\n`
   }).join('') + 'done\n'
   execFileSync('git', ['fast-import', '--quiet'], { cwd: root, env: { ...env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(root, 'absent-global') }, input: stream })
-  await page.goto(url)
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
   await page.getByRole('button', { name: 'History', exact: true }).click()
   await expect(page.getByRole('button', { name: /Large history 99999/ })).toBeVisible()
   expect(await page.locator('.graph-row').count()).toBeLessThan(60)
