@@ -3,15 +3,17 @@
 A Rust Git wrapper that will add local per-file loops and a browser Git UI.
 Git remains the source of truth; every Git operation uses the installed Git binary.
 
-**Development status: M1–M3 complete; M4 is under validation.**
+**Development status: M1–M4 complete; M4 has an approved macOS timing exception.**
 See the [M1 verification report](docs/milestones/M1.md) for measured results.
 The [M2 verification report](docs/milestones/M2.md) records capture tests and timing gates.
 The [M3 verification report](docs/milestones/M3.md) records history, rewind and tracking validation.
-This build implements the dispatcher, explicit loop capture, per-file history,
-compare, undoable rewind, pins and explicit tracking. All three operating systems
-passed M3 functional and performance acceptance. M4 setup, hook capture and commit
-handling are under validation; the UI arrives later. Do not alias `git` to this
-development build. See the [M4 report](docs/milestones/M4.md).
+This build implements the dispatcher, loop capture, per-file history, compare,
+undoable rewind, pins, tracking, setup, editor/AI hooks and commit handling.
+Functional and terminal checks pass on all three OSes. The latest macOS timing
+gate remains red; its strict 5 ms limit and stored baseline are unchanged.
+See the [M4 report](docs/milestones/M4.md) for the accepted boundary exception.
+M4.5 adds the manual watcher next; the UI arrives later. Do not alias `git` to
+this development build.
 
 ## Build on GitHub (preferred for this project)
 
@@ -26,6 +28,8 @@ When UI work starts in M6, frontend development/builds use the owner's existing
 local Node/npm and local browser testing. The local Node version stays unchanged.
 Rust builds remain hosted; a minimal local Rust setup is permitted only if UI
 work actually needs it. No large C++/Windows SDK installation is planned.
+If Windows blocks a development binary launched through Node, see the
+[Windows development guide](docs/WINDOWS_DEVELOPMENT.md) before changing settings.
 
 Artifacts expire after seven days. The workflow supports manual runs as well as
 pushes and pull requests. GitHub Actions availability and billing depend on your
@@ -169,7 +173,7 @@ per-worktree writing marker supports recovery and suppresses Paradox's own write
 it is consumed so later external edits are captured normally. These commands
 never install hooks or start a watcher.
 
-## Setup and commits (M4, under validation)
+## Setup and commits (M4)
 
 ```text
 paradox init

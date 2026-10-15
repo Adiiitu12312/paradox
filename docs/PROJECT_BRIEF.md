@@ -221,3 +221,10 @@ The M4 Run-on-Save entry must use `isAsync: true`. Latest watcher/message/princi
 amendments supersede older text. Close M2 after validation and continue.
 
 Build and test Rust on GitHub Actions, using Git and gh. UI development and Node/npm builds run locally with browser testing, using the existing Node version. A minimal local Rust setup is permitted only if UI work actually needs it; the large C++/Windows SDK install remains excluded. Use aditya raj / Adiiitu12312 / en3my20@gmail.com for project commits. M1 accepts the Windows G3 timing exception described above. The stored observation allows 50% plus 1 ms scheduling variance, never above the OS limit. The session-only watcher is now required at M4.5 (after M4, before M5), replacing the earlier optional post-M9 proposal. Milestone order is M1, M2, M3, M4, M4.5, M5, M6, M7, M8, M9. Stop and report at each boundary. Finished work is not restarted.
+
+M4 boundary acceptance, October 15, 2026: the owner allows M4 to close with a
+documented macOS hosted-timing exception. Keep the strict 5 ms macOS CI gate,
+stored baselines and visible failed results unchanged. This is a boundary
+exception for M4 only, not a new performance budget or permission to waive
+later milestone gates. Functional, terminal, capture and audit validation remains
+required; provenance and failed timing observations are in docs/milestones/M4.md.

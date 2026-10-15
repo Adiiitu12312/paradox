@@ -35,4 +35,6 @@ applicable setting yourself, say so before another local test is attempted.
 UI work will use the existing local Node/npm and browser when its milestone
 arrives. Minimal local Rust tools are permitted only if that work needs them;
 the large C++/Windows SDK toolchain remains excluded. These development builds
-are not yet recommended for the main working repository: M4 acceptance is open.
+are not yet recommended for the main working repository: release hardening is
+still ahead. M4 closes with an approved macOS timing exception; the CI gate stays
+strict, as recorded in [the M4 report](milestones/M4.md).
