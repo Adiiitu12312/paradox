@@ -644,7 +644,11 @@ impl LoopStore {
         // These are disposable accelerators, not history. Reclaim them before
         // evicting content when metadata itself is putting pressure on the cap.
         if self.bytes()? > self.config.store_cap_bytes
-            && !self.index.query_row("SELECT EXISTS(SELECT 1 FROM operation_pins)", [], |row| row.get::<_, bool>(0))?
+            && !self
+                .index
+                .query_row("SELECT EXISTS(SELECT 1 FROM operation_pins)", [], |row| {
+                    row.get::<_, bool>(0)
+                })?
         {
             self.index.execute_batch("DELETE FROM stat_cache; DELETE FROM tracked_cache; PRAGMA wal_checkpoint(TRUNCATE); VACUUM;")?;
         }

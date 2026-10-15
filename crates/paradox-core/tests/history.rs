@@ -278,8 +278,15 @@ fn unsafe_current_content_and_mismatched_plans_are_refused_before_writing() {
     let root = fixture();
     let mut store = open(root.path());
     fs::write(root.path().join("untracked.ts"), b"never adopted\n").unwrap();
-    assert!(store.rewind_file(Path::new("untracked.ts"), "HEAD").is_err());
-    assert_eq!(fs::read(root.path().join("untracked.ts")).unwrap(), b"never adopted\n");
+    assert!(
+        store
+            .rewind_file(Path::new("untracked.ts"), "HEAD")
+            .is_err()
+    );
+    assert_eq!(
+        fs::read(root.path().join("untracked.ts")).unwrap(),
+        b"never adopted\n"
+    );
     assert!(store.loops("untracked.ts").unwrap().is_empty());
     let id = save(&mut store, "a.ts", b"saved\n");
     fs::write(root.path().join("a.ts"), b"binary\0current").unwrap();
