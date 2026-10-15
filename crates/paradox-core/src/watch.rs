@@ -138,16 +138,35 @@ fn inotify_limit() -> Option<usize> {
         .ok()
 }
 
-fn tracked(repo: &Repo) -> Result<HashSet<String>> {
-    let mut tracked = repo.tracked(&[])?;
-    tracked.retain(|path| !excluded(path) && repo.regular_file(path).is_ok());
-    remove_ignored(repo, &mut tracked)?;
-    Ok(tracked)
+fn tracked(repo: &Repo) -> Result<TrackedPaths> {
+    let output = repo.git(&["--literal-pathspecs", "ls-files", "--cached", "-z", "--"])?;
+    let extra = repo.extra_tracked()?;
+    // Borrow Git's NUL records instead of allocating a String/hash bucket for
+    // every path, only to free those allocations before the idle session.
+    let mut paths: Vec<_> = output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter(|bytes| !bytes.is_empty())
+        .filter_map(|bytes| std::str::from_utf8(bytes).ok())
+        .chain(extra.iter().map(String::as_str))
+        .collect();
+    let mut checked_dirs = HashSet::new();
+    paths.retain(|path| {
+        !excluded(path) && repo.regular_file_cached(path, &mut checked_dirs).is_ok()
+    });
+    let ignored = ignored_paths(repo, &paths)?;
+    let mut ignored: Vec<_> = ignored
+        .split(|byte| *byte == 0)
+        .filter_map(|bytes| std::str::from_utf8(bytes).ok())
+        .collect();
+    ignored.sort_unstable();
+    paths.retain(|path| ignored.binary_search(path).is_err());
+    TrackedPaths::from_paths(paths)
 }
 
-fn remove_ignored(repo: &Repo, paths: &mut HashSet<String>) -> Result<()> {
+fn ignored_paths(repo: &Repo, paths: &[&str]) -> Result<Vec<u8>> {
     if paths.is_empty() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     let mut child = repo
         .command(&["check-ignore", "--no-index", "--stdin", "-z"])
@@ -159,7 +178,6 @@ fn remove_ignored(repo: &Repo, paths: &mut HashSet<String>) -> Result<()> {
     // Read stdout concurrently with writing stdin: a large ignored tracked set
     // must never deadlock when both OS pipes fill.
     let output = std::thread::scope(|scope| -> Result<_> {
-        let paths: &HashSet<String> = paths;
         let writer = scope.spawn(move || -> std::io::Result<()> {
             for path in paths {
                 input.write_all(path.as_bytes())?;
@@ -178,8 +196,14 @@ fn remove_ignored(repo: &Repo, paths: &mut HashSet<String>) -> Result<()> {
         "Git ignore check failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
-    for path in output
-        .stdout
+    Ok(output.stdout)
+}
+
+fn remove_ignored(repo: &Repo, paths: &mut HashSet<String>) -> Result<()> {
+    let names: Vec<_> = paths.iter().map(String::as_str).collect();
+    let ignored = ignored_paths(repo, &names)?;
+    drop(names);
+    for path in ignored
         .split(|byte| *byte == 0)
         .filter_map(|bytes| std::str::from_utf8(bytes).ok())
     {
@@ -196,9 +220,9 @@ struct TrackedPaths {
 }
 
 impl TrackedPaths {
-    fn from_paths(paths: HashSet<String>) -> Result<Self> {
-        let mut paths: Vec<_> = paths.into_iter().collect();
+    fn from_paths(mut paths: Vec<&str>) -> Result<Self> {
         paths.sort_unstable();
+        paths.dedup();
         let capacity = paths.iter().map(|path| path.len() + 1).sum();
         let mut arena = String::with_capacity(capacity);
         let mut starts = Vec::with_capacity(paths.len());
@@ -208,7 +232,7 @@ impl TrackedPaths {
                 "invalid tracked path"
             );
             starts.push(arena.len());
-            arena.push_str(&path);
+            arena.push_str(path);
             arena.push('\0');
         }
         Ok(Self {
@@ -276,7 +300,7 @@ impl Coverage {
     }
 
     fn refresh(&mut self, repo: &Repo, watcher: &mut RecommendedWatcher) -> Result<()> {
-        let files = TrackedPaths::from_paths(tracked(repo)?)?;
+        let files = tracked(repo)?;
         let controls: BTreeSet<_> = [
             self.index
                 .parent()
@@ -287,10 +311,14 @@ impl Coverage {
         .into_iter()
         .map(|p| normalized(&p))
         .collect();
-        let mut directories: BTreeSet<_> = files
+        let parents: BTreeSet<_> = files
             .iter()
-            .filter_map(|name| {
-                let parent = repo.root.join(name).parent()?.to_path_buf();
+            .filter_map(|name| Path::new(name).parent())
+            .collect();
+        let mut directories: BTreeSet<_> = parents
+            .into_iter()
+            .filter_map(|parent| {
+                let parent = repo.root.join(parent);
                 if parent.is_dir() {
                     Some(normalized(&parent))
                 } else {
@@ -387,22 +415,6 @@ fn persist_status(repo: &Repo, state: &Status) -> Result<()> {
     atomic_write(&state_path(repo), &bytes)
 }
 
-fn release_refresh_scratch() {
-    #[cfg(target_os = "macos")]
-    {
-        unsafe extern "C" {
-            fn malloc_zone_pressure_relief(zone: *mut std::ffi::c_void, goal: usize) -> usize;
-        }
-        // Apple's public allocator API releases unused pages across all zones
-        // for (NULL, 0). Coverage and status temporaries have already dropped;
-        // live paths/native watcher objects remain allocated. Never run on a
-        // timer: only after startup or an event-driven tracked-set refresh.
-        unsafe {
-            let _ = malloc_zone_pressure_relief(std::ptr::null_mut(), 0);
-        }
-    }
-}
-
 fn receive(receiver: &Receiver<Message>, timeout: Option<Duration>) -> Result<Option<Message>> {
     if let Some(timeout) = timeout {
         match receiver.recv_timeout(timeout) {
@@ -485,7 +497,6 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
         atomic_write(&stop_path(&repo), b"")?;
     }
     persist_status(&repo, &state)?;
-    release_refresh_scratch();
     let idle = idle_duration(config.watch_idle_minutes);
     println!(
         "Paradox watching {} tracked files; {}",
@@ -719,7 +730,6 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
                         if let Err(error) = persist_status(&repo, &state) {
                             log_at(&repo.store, &format!("watch status: {error:#}"));
                         }
-                        release_refresh_scratch();
                     }
                 }
                 None => {
@@ -778,7 +788,7 @@ mod tracked_paths_tests {
     use std::collections::HashSet;
 
     fn paths(names: &[&str]) -> TrackedPaths {
-        TrackedPaths::from_paths(names.iter().map(|name| (*name).to_owned()).collect()).unwrap()
+        TrackedPaths::from_paths(names.to_vec()).unwrap()
     }
 
     #[test]
@@ -837,7 +847,7 @@ mod tracked_paths_tests {
     fn fifty_thousand_paths_use_only_exact_path_bytes_and_one_offset_each() {
         let names: HashSet<_> = (0..50_000).map(|n| format!("src/{n}.ts")).collect();
         let path_bytes: usize = names.iter().map(|name| name.len() + 1).sum();
-        let packed = TrackedPaths::from_paths(names).unwrap();
+        let packed = TrackedPaths::from_paths(names.iter().map(String::as_str).collect()).unwrap();
         assert_eq!(packed.len(), 50_000);
         assert_eq!(packed.arena.len(), path_bytes);
         assert_eq!(packed.starts.len(), 50_000);
@@ -852,7 +862,61 @@ mod tracked_paths_tests {
     #[test]
     fn invalid_separator_or_empty_filename_is_an_error() {
         for name in ["", "bad\0name"] {
-            assert!(TrackedPaths::from_paths([name.to_owned()].into_iter().collect()).is_err());
+            assert!(TrackedPaths::from_paths(vec![name]).is_err());
+        }
+    }
+
+    #[test]
+    fn borrowed_discovery_preserves_native_tracking_ignore_and_missing_paths() {
+        let root = tempfile::tempdir().unwrap();
+        let git = |arguments: &[&str]| {
+            let mut command = std::process::Command::new("git");
+            command.args(arguments).current_dir(root.path());
+            for (name, _) in std::env::vars_os() {
+                if name.to_string_lossy().starts_with("GIT_") {
+                    command.env_remove(name);
+                }
+            }
+            let output = command
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", root.path().join("absent-global"))
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        };
+        git(&["init", "-q", "--initial-branch=main"]);
+        for directory in ["nested", "ignored", "build"] {
+            std::fs::create_dir(root.path().join(directory)).unwrap();
+        }
+        std::fs::write(root.path().join(".gitignore"), ".paradox/\nignored/\nforced.ts\n").unwrap();
+        let cached = ["keep.ts", "missing.ts", "nested/space 日本語.ts", "forced.ts", "ignored/cached.ts", "build/cached.ts"];
+        for name in cached {
+            std::fs::write(root.path().join(name), "base\n").unwrap();
+        }
+        let mut add = vec!["add", "-f", "--", ".gitignore"];
+        add.extend(cached);
+        git(&add);
+        std::fs::remove_file(root.path().join("missing.ts")).unwrap();
+        for name in ["extra.ts", "ignored/extra.ts", "raw-untracked.ts"] {
+            std::fs::write(root.path().join(name), "extra\n").unwrap();
+        }
+        let repo = crate::repo::Repo::discover(&[
+            std::ffi::OsString::from("-C"), root.path().as_os_str().to_owned(),
+        ]).unwrap();
+        std::fs::create_dir_all(&repo.store).unwrap();
+        std::fs::write(repo.store.join("tracked.toml"), format!(
+            "[worktrees]\n{} = [\"extra.ts\", \"keep.ts\", \"ignored/extra.ts\"]\n", repo.worktree
+        )).unwrap();
+        let mut reference = repo.tracked(&[]).unwrap();
+        reference.retain(|path| !super::excluded(path) && repo.regular_file(path).is_ok());
+        super::remove_ignored(&repo, &mut reference).unwrap();
+        let actual = super::tracked(&repo).unwrap();
+        assert_eq!(actual.len(), reference.len(), "Git and explicit paths must deduplicate");
+        assert_eq!(actual.iter().collect::<HashSet<_>>(), reference.iter().map(String::as_str).collect());
+        assert!(actual.contains("missing.ts"), "deleted tracked paths must remain eligible for recreation");
+        assert!(actual.contains("extra.ts"));
+        for excluded in ["forced.ts", "ignored/cached.ts", "ignored/extra.ts", "build/cached.ts", "raw-untracked.ts"] {
+            assert!(!actual.contains(excluded), "{excluded}");
         }
     }
 }

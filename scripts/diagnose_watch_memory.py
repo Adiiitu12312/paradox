@@ -67,6 +67,14 @@ def main():
                                   rss_bytes=int(final.strip()) * 1024)
                     results.append(result)
                     print(json.dumps(result), flush=True)
+                    # Inspect mappings only after sampling RSS, so diagnostic
+                    # tooling cannot change the recorded idle observation.
+                    with (output / f'{name}-vmmap.txt').open('wb') as mappings:
+                        try:
+                            subprocess.run(['vmmap', '-summary', str(child.pid)], stdout=mappings,
+                                           stderr=subprocess.STDOUT, timeout=20, check=False)
+                        except (subprocess.SubprocessError, OSError) as error:
+                            mappings.write(str(error).encode())
                     run(binary, 'watch', '--stop')
                     assert child.wait(timeout=15) == 0
                     log.write(child.stdout.read())
