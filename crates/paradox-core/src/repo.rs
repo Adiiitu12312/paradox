@@ -178,7 +178,11 @@ impl Repo {
         self.regular_file_cached(path, &mut HashSet::new())
     }
 
-    pub fn regular_file_cached(&self, path: &str, checked_dirs: &mut HashSet<PathBuf>) -> Result<Option<std::fs::Metadata>> {
+    pub fn regular_file_cached(
+        &self,
+        path: &str,
+        checked_dirs: &mut HashSet<PathBuf>,
+    ) -> Result<Option<std::fs::Metadata>> {
         let mut file = self.root.clone();
         let parts: Vec<_> = Path::new(path).components().collect();
         for (index, part) in parts.iter().enumerate() {
@@ -187,7 +191,9 @@ impl Repo {
                 "invalid stored file path"
             );
             file.push(part.as_os_str());
-            if index < parts.len() - 1 && checked_dirs.contains(&file) { continue; }
+            if index < parts.len() - 1 && checked_dirs.contains(&file) {
+                continue;
+            }
             match std::fs::symlink_metadata(&file) {
                 Ok(m) => {
                     if m.file_type().is_symlink() {
@@ -196,7 +202,9 @@ impl Repo {
                     if index == parts.len() - 1 {
                         return Ok(m.is_file().then_some(m));
                     }
-                    if !m.is_dir() { return Ok(None); }
+                    if !m.is_dir() {
+                        return Ok(None);
+                    }
                     checked_dirs.insert(file.clone());
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),

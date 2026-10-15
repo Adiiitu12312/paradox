@@ -323,7 +323,10 @@ impl LoopStore {
         if self.denied(path) {
             return Ok((false, false, true));
         }
-        let Some(meta) = self.repo.regular_file_cached(path, &mut self.checked_dirs)? else {
+        let Some(meta) = self
+            .repo
+            .regular_file_cached(path, &mut self.checked_dirs)?
+        else {
             return Ok((false, false, true));
         };
         if meta.len() > self.config.size_limit_bytes {
