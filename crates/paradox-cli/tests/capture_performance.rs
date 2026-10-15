@@ -19,7 +19,9 @@ fn fifty_thousand_files_single_save_and_warm_scan() {
     let scan_limit: f64 = fields[4].parse().unwrap();
     let save_ceiling = save_limit.min(save_baseline * 1.5 + 1.0);
     let scan_ceiling = scan_limit.min(scan_baseline * 1.5 + 1.0);
-    println!("OS save/scan limits={save_limit}/{scan_limit} ms; baselines={save_baseline}/{scan_baseline} ms; regression ceilings={save_ceiling}/{scan_ceiling} ms");
+    println!(
+        "OS save/scan limits={save_limit}/{scan_limit} ms; baselines={save_baseline}/{scan_baseline} ms; regression ceilings={save_ceiling}/{scan_ceiling} ms"
+    );
     let root = tempfile::tempdir().unwrap();
     let git = |args: &[&str]| {
         let out = Command::new("git")

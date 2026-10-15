@@ -211,4 +211,13 @@ M9. Hardening: cross-platform CI green, README (install, quickstart, command ref
 
 ## Accepted amendments (October 15, 2026)
 
+M2's accepted Windows-only capture budgets are under 100 ms per single-file loop
+and under 1000 ms per warm 50,000-file scan. Linux/macOS retain 50/500 ms. Store
+per-OS observed baselines and enforce regressions with the documented scheduling
+allowance, capped by the OS limits. One bounded cheap-win pass is allowed before
+re-measurement and closure; no weaker atomic writes, fsync, SQLite synchronous mode
+or locking. Keep fat LTO, one codegen unit, abort-on-panic and static Windows CRT.
+The M4 Run-on-Save entry must use `isAsync: true`. Latest watcher/message/principle
+amendments supersede older text. Close M2 after validation and continue.
+
 Build and test on GitHub Actions, using Git and gh. Do not install local Rust/C++ build tools or change system Node. Use aditya raj / Adiiitu12312 / en3my20@gmail.com for project commits. M1 accepts the Windows G3 timing exception described above. The stored observation allows 50% plus 1 ms scheduling variance, never above the OS limit. The session-only watcher is now required at M4.5 (after M4, before M5), replacing the earlier optional post-M9 proposal. Milestone order is M1, M2, M3, M4, M4.5, M5, M6, M7, M8, M9. Stop and report at each boundary. Finished work is not restarted.

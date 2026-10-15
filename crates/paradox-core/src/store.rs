@@ -203,10 +203,9 @@ impl LoopStore {
             .prepare_cached(
                 "SELECT mtime_ns,size,last_hash FROM stat_cache WHERE worktree=?1 AND path=?2",
             )?
-            .query_row(
-                params![self.repo.worktree, path],
-                |r| Ok((r.get(0)?, sql_size(r, 1)?, r.get(2)?)),
-            )
+            .query_row(params![self.repo.worktree, path], |r| {
+                Ok((r.get(0)?, sql_size(r, 1)?, r.get(2)?))
+            })
             .optional()?)
     }
 
