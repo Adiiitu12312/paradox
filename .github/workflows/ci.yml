@@ -36,6 +36,9 @@ jobs:
       - run: cargo test --workspace --locked --features paradox-cli/fault-injection
       - run: cargo build --release --locked -p paradox-cli
         id: release
+      - name: Record macOS startup dependencies
+        if: runner.os == 'macOS'
+        run: otool -L target/${{ matrix.target }}/release/paradox
       - name: Install Windows terminal test helper on hosted runner
         if: runner.os == 'Windows'
         run: |

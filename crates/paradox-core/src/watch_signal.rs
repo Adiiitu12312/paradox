@@ -22,7 +22,10 @@ impl Guard {
                     stop();
                 }
             })?;
-        Ok(Self { handle, worker: Some(worker) })
+        Ok(Self {
+            handle,
+            worker: Some(worker),
+        })
     }
 }
 
@@ -46,14 +49,19 @@ mod tests {
 
     struct Captured(Arc<AtomicBool>);
     impl Drop for Captured {
-        fn drop(&mut self) { self.0.store(true, Ordering::SeqCst); }
+        fn drop(&mut self) {
+            self.0.store(true, Ordering::SeqCst);
+        }
     }
 
     #[test]
     fn dropping_guard_wakes_and_joins_worker_without_receiving_a_signal() {
         let finished = Arc::new(AtomicBool::new(false));
         let captured = Captured(finished.clone());
-        let guard = Guard::new(move || { let _ = &captured; }).unwrap();
+        let guard = Guard::new(move || {
+            let _ = &captured;
+        })
+        .unwrap();
         assert!(!finished.load(Ordering::SeqCst));
         drop(guard);
         assert!(finished.load(Ordering::SeqCst));
