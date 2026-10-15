@@ -359,6 +359,25 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
     ctrlc::set_handler(move || {
         let _ = signals.send(Message::Stop);
     })?;
+    #[cfg(windows)]
+    {
+        unsafe extern "system" {
+            fn SetConsoleCtrlHandler(
+                handler: Option<unsafe extern "system" fn(u32) -> i32>,
+                add: i32,
+            ) -> i32;
+        }
+        // A console parent/new process group can leave Ctrl+C ignored. Adding
+        // the custom handler does not clear that separate inherited attribute.
+        // Enable delivery only after installing our handler; a detached session
+        // has no console and uses its authenticated stop mailbox instead.
+        if unsafe { SetConsoleCtrlHandler(None, 0) } == 0 {
+            let error = std::io::Error::last_os_error();
+            if error.raw_os_error() != Some(6) {
+                return Err(error).context("could not enable watch Ctrl+C delivery");
+            }
+        }
+    }
     let mut watcher: RecommendedWatcher = notify::recommended_watcher(move |event| {
         let _ = sender.send(Message::Event(event, Instant::now()));
     })?;

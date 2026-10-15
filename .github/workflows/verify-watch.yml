@@ -33,3 +33,14 @@ jobs:
           retention-days: 1
       - run: cargo test --locked -p paradox-core --lib -- --nocapture
       - run: cargo test --locked -p paradox-cli --features fault-injection --test watch -- --nocapture
+      - run: cargo build --release --locked -p paradox-cli
+      - name: Install Windows terminal test helper on the hosted runner
+        if: runner.os == 'Windows'
+        run: |
+          python -m pip install --only-binary=:all: "pywinpty>=3,<4"
+      - name: Verify real foreground interruption and Git child status
+        shell: bash
+        run: |
+          suffix=''
+          if [ "$RUNNER_OS" = Windows ]; then suffix='.exe'; fi
+          python -u scripts/test_terminal.py "target/${{ matrix.target }}/release/paradox$suffix"
