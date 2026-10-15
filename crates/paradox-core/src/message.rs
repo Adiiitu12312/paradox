@@ -1,9 +1,12 @@
-use std::path::Path;
 use similar::{ChangeTag, TextDiff};
+use std::path::Path;
 
 /// Return only the permitted message line. A normal file never reads line two.
 pub fn message_line(bytes: &[u8]) -> &[u8] {
-    let end = bytes.iter().position(|b| *b == b'\n').unwrap_or(bytes.len());
+    let end = bytes
+        .iter()
+        .position(|b| *b == b'\n')
+        .unwrap_or(bytes.len());
     let first = bytes[..end].strip_suffix(b"\r").unwrap_or(&bytes[..end]);
     if first.starts_with(b"#!") || first == b"<?php" {
         let rest = bytes.get(end + 1..).unwrap_or_default();
@@ -18,7 +21,10 @@ pub fn label(path: &Path, current: &[u8], previous: &[u8]) -> (String, bool) {
     let line = message_line(current);
     if path.extension().is_none_or(|e| e != "json") && line != message_line(previous) {
         for prefix in [b"//>".as_slice(), b"#>", b"-->", b";>", b"%>"] {
-            if let Some(value) = line.strip_prefix(prefix).and_then(|v| std::str::from_utf8(v).ok()) {
+            if let Some(value) = line
+                .strip_prefix(prefix)
+                .and_then(|v| std::str::from_utf8(v).ok())
+            {
                 let value = value.trim_start();
                 if !value.is_empty() {
                     return (value.into(), false);
@@ -49,12 +55,18 @@ mod tests {
     fn permitted_lines_and_stale_messages() {
         for prefix in ["//>", "#>", "-->", ";>", "%>"] {
             let text = format!("{prefix}   fix ü\r\nbody\n");
-            assert_eq!(label(Path::new("file.ts"), text.as_bytes(), b"old"), ("fix ü".into(), false));
+            assert_eq!(
+                label(Path::new("file.ts"), text.as_bytes(), b"old"),
+                ("fix ü".into(), false)
+            );
             let changed = format!("{prefix}   fix ü\r\nchanged\n");
             assert!(label(Path::new("file.ts"), changed.as_bytes(), text.as_bytes()).1);
         }
         for first in ["#!/bin/sh", "<?php"] {
-            assert_eq!(message_line(format!("{first}\r\n#> second\r\n#> third").as_bytes()), b"#> second");
+            assert_eq!(
+                message_line(format!("{first}\r\n#> second\r\n#> third").as_bytes()),
+                b"#> second"
+            );
         }
         assert!(label(Path::new("file.json"), b"//> no", b"").1);
         assert_eq!(message_line(b""), b"");

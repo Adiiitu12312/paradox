@@ -18,11 +18,17 @@ fn capture(args: &[OsString], index: usize) {
     // Editor and AI save commands must never fail their caller.
     let options = match LoopArgs::try_parse_from(&args[index..]) {
         Ok(options) => options,
-        Err(error) => { let _ = error.print(); return; }
+        Err(error) => {
+            let _ = error.print();
+            return;
+        }
     };
     let repo = match paradox_core::repo::Repo::discover(&args[..index]) {
         Ok(repo) => repo,
-        Err(error) => { eprintln!("paradox loop: {error:#}"); return; }
+        Err(error) => {
+            eprintln!("paradox loop: {error:#}");
+            return;
+        }
     };
     let log_root = repo.store.clone();
     let result = (|| -> Result<(), Box<dyn std::error::Error>> {
@@ -30,15 +36,30 @@ fn capture(args: &[OsString], index: usize) {
         if !options.files.is_empty() || (!options.gc && !options.stats) {
             let _ = store.capture(&options.files)?;
         }
-        if options.gc { store.gc()?; }
+        if options.gc {
+            store.gc()?;
+        }
         if options.stats {
-            let count: i64 = store.index.query_row("SELECT COUNT(*) FROM loops", [], |r| r.get(0))?;
-            let oldest: Option<i64> = store.index.query_row("SELECT MIN(ts) FROM loops", [], |r| r.get(0))?;
-            println!("loops={count} bytes={} oldest_ms={}", store.bytes()?, oldest.map(|t| t.to_string()).unwrap_or_else(|| "none".into()));
+            let count: i64 = store
+                .index
+                .query_row("SELECT COUNT(*) FROM loops", [], |r| r.get(0))?;
+            let oldest: Option<i64> =
+                store
+                    .index
+                    .query_row("SELECT MIN(ts) FROM loops", [], |r| r.get(0))?;
+            println!(
+                "loops={count} bytes={} oldest_ms={}",
+                store.bytes()?,
+                oldest
+                    .map(|t| t.to_string())
+                    .unwrap_or_else(|| "none".into())
+            );
         }
         Ok(())
     })();
-    if let Err(error) = result { paradox_core::store::log_at(&log_root, &format!("{error:#}")); }
+    if let Err(error) = result {
+        paradox_core::store::log_at(&log_root, &format!("{error:#}"));
+    }
 }
 
 #[derive(Parser)]
@@ -61,7 +82,10 @@ fn main() {
         }
         Route::Git => paradox_core::git::passthrough(&args),
         Route::ForceGit { index } => paradox_core::git::passthrough(&force_git_args(&args, index)),
-        Route::Owned { index } if args[index] == "loop" => { capture(&args, index); return; }
+        Route::Owned { index } if args[index] == "loop" => {
+            capture(&args, index);
+            return;
+        }
         Route::Owned { index } | Route::FileCommit { index, .. } => {
             eprintln!(
                 "paradox: '{}' is not available in M1; see paradox --help",

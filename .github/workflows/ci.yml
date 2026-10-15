@@ -49,6 +49,7 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - run: cargo test --release --test performance --locked -- --ignored --nocapture
+      - run: cargo test --release --test capture_performance --locked -- --ignored --nocapture
   audit:
     runs-on: ubuntu-latest
     steps:

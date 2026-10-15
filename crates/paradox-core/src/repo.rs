@@ -19,22 +19,61 @@ pub struct Repo {
 impl Repo {
     pub fn discover(globals: &[OsString]) -> Result<Self> {
         let mut args = globals.to_vec();
-        args.extend(["rev-parse", "--path-format=absolute", "--show-toplevel", "--git-common-dir", "--show-prefix", "--absolute-git-dir", "HEAD"].map(OsString::from));
-        let output = crate::git::command(&args).output().context("could not run Git")?;
-        let text = std::str::from_utf8(&output.stdout).context("repository paths must be UTF-8 for loop storage")?;
+        args.extend(
+            [
+                "rev-parse",
+                "--path-format=absolute",
+                "--show-toplevel",
+                "--git-common-dir",
+                "--show-prefix",
+                "--absolute-git-dir",
+                "HEAD",
+            ]
+            .map(OsString::from),
+        );
+        let output = crate::git::command(&args)
+            .output()
+            .context("could not run Git")?;
+        let text = std::str::from_utf8(&output.stdout)
+            .context("repository paths must be UTF-8 for loop storage")?;
         let lines: Vec<_> = text.lines().collect();
-        ensure!(lines.len() >= 4, "loops require a working-tree Git repository");
+        ensure!(
+            lines.len() >= 4,
+            "loops require a working-tree Git repository"
+        );
         let root = PathBuf::from(lines[0]);
         let common = PathBuf::from(lines[1]);
-        ensure!(root.is_absolute() && common.is_absolute() && common.is_dir(), "Git returned invalid repository paths");
+        ensure!(
+            root.is_absolute() && common.is_absolute() && common.is_dir(),
+            "Git returned invalid repository paths"
+        );
         let store = if common.file_name().is_some_and(|s| s == ".git") {
-            common.parent().context("missing repository parent")?.join(".paradox")
+            common
+                .parent()
+                .context("missing repository parent")?
+                .join(".paradox")
         } else {
             common.join("paradox")
         };
-        let worktree = blake3::hash(root.as_os_str().as_encoded_bytes()).to_hex().to_string();
-        let head = lines.get(4).filter(|s| matches!(s.len(), 40 | 64) && s.bytes().all(|b| b.is_ascii_hexdigit())).copied().unwrap_or_default().to_string();
-        Ok(Self { globals: globals.to_vec(), root, common, git_dir: PathBuf::from(lines[3]), store, prefix: PathBuf::from(lines[2]), worktree, head })
+        let worktree = blake3::hash(root.as_os_str().as_encoded_bytes())
+            .to_hex()
+            .to_string();
+        let head = lines
+            .get(4)
+            .filter(|s| matches!(s.len(), 40 | 64) && s.bytes().all(|b| b.is_ascii_hexdigit()))
+            .copied()
+            .unwrap_or_default()
+            .to_string();
+        Ok(Self {
+            globals: globals.to_vec(),
+            root,
+            common,
+            git_dir: PathBuf::from(lines[3]),
+            store,
+            prefix: PathBuf::from(lines[2]),
+            worktree,
+            head,
+        })
     }
 
     pub fn git(&self, args: &[&str]) -> Result<Output> {
@@ -46,20 +85,34 @@ impl Repo {
         all.push(format!("--work-tree={}", self.root.display()).into());
         all.extend(args.iter().map(OsString::from));
         let result = crate::git::command(&all).output()?;
-        ensure!(result.status.success(), "Git operation failed: {}", String::from_utf8_lossy(&result.stderr));
+        ensure!(
+            result.status.success(),
+            "Git operation failed: {}",
+            String::from_utf8_lossy(&result.stderr)
+        );
         Ok(result)
     }
 
     pub fn index_signature(&self) -> Option<String> {
-        if std::env::var_os("GIT_INDEX_FILE").is_some() { return None; }
+        if std::env::var_os("GIT_INDEX_FILE").is_some() {
+            return None;
+        }
         let meta = std::fs::metadata(self.git_dir.join("index")).ok()?;
-        let time = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
-        Some(format!("{time}:{}",meta.len()))
+        let time = meta
+            .modified()
+            .ok()?
+            .duration_since(std::time::UNIX_EPOCH)
+            .ok()?
+            .as_nanos();
+        Some(format!("{time}:{}", meta.len()))
     }
 
     pub fn relative(&self, input: &Path) -> Result<String> {
         let path = if input.is_absolute() {
-            input.strip_prefix(&self.root).context("file is outside this working tree")?.to_path_buf()
+            input
+                .strip_prefix(&self.root)
+                .context("file is outside this working tree")?
+                .to_path_buf()
         } else {
             self.prefix.join(input)
         };
@@ -72,8 +125,14 @@ impl Repo {
                 _ => bail!("invalid file path"),
             }
         }
-        let path = clean.to_str().context("loop paths must be UTF-8")?.replace('\\', "/");
-        ensure!(!path.is_empty() && !path.contains('\0'), "invalid empty file path");
+        let path = clean
+            .to_str()
+            .context("loop paths must be UTF-8")?
+            .replace('\\', "/");
+        ensure!(
+            !path.is_empty() && !path.contains('\0'),
+            "invalid empty file path"
+        );
         Ok(path)
     }
 
@@ -81,8 +140,12 @@ impl Repo {
         let mut args = vec!["--literal-pathspecs", "ls-files", "--cached", "-z", "--"];
         args.extend(selected.iter().map(String::as_str));
         let output = self.git(&args)?;
-        Ok(output.stdout.split(|b| *b == 0).filter(|p| !p.is_empty())
-            .filter_map(|p| std::str::from_utf8(p).ok().map(str::to_owned)).collect())
+        Ok(output
+            .stdout
+            .split(|b| *b == 0)
+            .filter(|p| !p.is_empty())
+            .filter_map(|p| std::str::from_utf8(p).ok().map(str::to_owned))
+            .collect())
     }
 
     pub fn dirty(&self) -> Result<HashSet<String>> {
@@ -90,12 +153,22 @@ impl Repo {
         let mut dirty = HashSet::new();
         let mut entries = output.stdout.split(|b| *b == 0);
         while let Some(entry) = entries.next() {
-            let fields = match entry.first() { Some(b'1') => 9, Some(b'2') => 10, Some(b'u') => 11, _ => continue };
-            if let Some(path) = entry.splitn(fields, |b| *b == b' ').nth(fields - 1)
-                .and_then(|p| std::str::from_utf8(p).ok()) {
+            let fields = match entry.first() {
+                Some(b'1') => 9,
+                Some(b'2') => 10,
+                Some(b'u') => 11,
+                _ => continue,
+            };
+            if let Some(path) = entry
+                .splitn(fields, |b| *b == b' ')
+                .nth(fields - 1)
+                .and_then(|p| std::str::from_utf8(p).ok())
+            {
                 dirty.insert(path.to_string());
             }
-            if entry.first() == Some(&b'2') { let _ = entries.next(); }
+            if entry.first() == Some(&b'2') {
+                let _ = entries.next();
+            }
         }
         Ok(dirty)
     }
@@ -105,12 +178,19 @@ impl Repo {
         let mut file = self.root.clone();
         let parts: Vec<_> = Path::new(path).components().collect();
         for (index, part) in parts.iter().enumerate() {
-            ensure!(matches!(part, Component::Normal(_)), "invalid stored file path");
+            ensure!(
+                matches!(part, Component::Normal(_)),
+                "invalid stored file path"
+            );
             file.push(part.as_os_str());
             match std::fs::symlink_metadata(&file) {
                 Ok(m) => {
-                    if m.file_type().is_symlink() { return Ok(None); }
-                    if index == parts.len() - 1 { return Ok(m.is_file().then_some(m)); }
+                    if m.file_type().is_symlink() {
+                        return Ok(None);
+                    }
+                    if index == parts.len() - 1 {
+                        return Ok(m.is_file().then_some(m));
+                    }
                 }
                 Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
                 Err(e) => return Err(e.into()),

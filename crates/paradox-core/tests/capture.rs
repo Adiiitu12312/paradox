@@ -8,12 +8,24 @@ use std::process::Command;
 use tempfile::TempDir;
 
 fn git(root: &Path, args: &[&str]) {
-    let out = Command::new("git").args(args).current_dir(root)
-        .env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_CONFIG_GLOBAL", root.join("no-global"))
-        .env("GIT_AUTHOR_NAME", "Paradox Test").env("GIT_AUTHOR_EMAIL", "test@example.invalid")
-        .env("GIT_COMMITTER_NAME", "Paradox Test").env("GIT_COMMITTER_EMAIL", "test@example.invalid")
-        .env_remove("GIT_DIR").env_remove("GIT_WORK_TREE").output().unwrap();
-    assert!(out.status.success(), "{args:?}: {}", String::from_utf8_lossy(&out.stderr));
+    let out = Command::new("git")
+        .args(args)
+        .current_dir(root)
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_CONFIG_GLOBAL", root.join("no-global"))
+        .env("GIT_AUTHOR_NAME", "Paradox Test")
+        .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
+        .env("GIT_COMMITTER_NAME", "Paradox Test")
+        .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
+        .env_remove("GIT_DIR")
+        .env_remove("GIT_WORK_TREE")
+        .output()
+        .unwrap();
+    assert!(
+        out.status.success(),
+        "{args:?}: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
 }
 
 fn fixture() -> TempDir {
@@ -29,7 +41,8 @@ fn fixture() -> TempDir {
 }
 
 fn open(root: &Path) -> LoopStore {
-    LoopStore::open(Repo::discover(&[OsString::from("-C"), root.as_os_str().to_owned()]).unwrap()).unwrap()
+    LoopStore::open(Repo::discover(&[OsString::from("-C"), root.as_os_str().to_owned()]).unwrap())
+        .unwrap()
 }
 
 fn save(store: &mut LoopStore) -> paradox_core::store::CaptureReport {
@@ -42,53 +55,94 @@ fn saves_messages_deduplicates_and_uses_stat_cache() {
     let mut store = open(temp.path());
     fs::write(temp.path().join("file.ts"), "//> fix button\r\nfirst\r\n").unwrap();
     let report = save(&mut store);
-    assert_eq!((report.saved,report.hashed), (1,1));
+    assert_eq!((report.saved, report.hashed), (1, 1));
     let report = save(&mut store);
-    assert_eq!((report.saved,report.hashed), (0,0));
+    assert_eq!((report.saved, report.hashed), (0, 0));
     let loops = store.loops("file.ts").unwrap();
     assert_eq!(loops[0].message, "fix button");
     assert!(!loops[0].auto_label);
-    assert_eq!(store.blobs.get(&loops[0].blob_hash).unwrap(), b"//> fix button\r\nfirst\r\n");
+    assert_eq!(
+        store.blobs.get(&loops[0].blob_hash).unwrap(),
+        b"//> fix button\r\nfirst\r\n"
+    );
     assert_eq!(loops[0].head_sha.len(), 40);
     // Explicitly change mtime but not bytes: hashing is required, no new loop.
-    let file = fs::OpenOptions::new().write(true).open(temp.path().join("file.ts")).unwrap();
-    file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(2)).unwrap();
+    let file = fs::OpenOptions::new()
+        .write(true)
+        .open(temp.path().join("file.ts"))
+        .unwrap();
+    file.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(2))
+        .unwrap();
     let report = save(&mut store);
-    assert_eq!((report.saved,report.hashed), (0,1));
-    fs::write(temp.path().join("file.ts"), "//> fix button\r\nsecond changed\r\n").unwrap();
+    assert_eq!((report.saved, report.hashed), (0, 1));
+    fs::write(
+        temp.path().join("file.ts"),
+        "//> fix button\r\nsecond changed\r\n",
+    )
+    .unwrap();
     assert_eq!(save(&mut store).saved, 1);
     assert!(store.loops("file.ts").unwrap()[0].auto_label);
-    assert_eq!(store.index.query_row("PRAGMA journal_mode", [], |r| r.get::<_,String>(0)).unwrap(), "wal");
-    assert!(store.repo.store.join("index.sqlite3-wal").metadata().is_ok_and(|m| m.len() == 0));
+    assert_eq!(
+        store
+            .index
+            .query_row("PRAGMA journal_mode", [], |r| r.get::<_, String>(0))
+            .unwrap(),
+        "wal"
+    );
+    assert!(
+        store
+            .repo
+            .store
+            .join("index.sqlite3-wal")
+            .metadata()
+            .is_ok_and(|m| m.len() == 0)
+    );
 }
 
 #[test]
 fn ignores_untracked_directories_secrets_binary_large_and_links() {
     let temp = fixture();
-    for (name,bytes) in [(".env.production", b"PASSWORD=private".as_slice()), ("private.pem",b"private"),
-        ("id_rsa_work",b"private"), ("file.bin", b"start\0binary")] {
-        fs::write(temp.path().join(name),bytes).unwrap();
-        git(temp.path(), &["add",name]);
+    for (name, bytes) in [
+        (".env.production", b"PASSWORD=private".as_slice()),
+        ("private.pem", b"private"),
+        ("id_rsa_work", b"private"),
+        ("file.bin", b"start\0binary"),
+    ] {
+        fs::write(temp.path().join(name), bytes).unwrap();
+        git(temp.path(), &["add", name]);
     }
     fs::write(temp.path().join("huge.txt"), vec![b'x'; 2_097_153]).unwrap();
-    git(temp.path(), &["add","huge.txt"]);
+    git(temp.path(), &["add", "huge.txt"]);
     fs::create_dir_all(temp.path().join("new/node_modules/deep")).unwrap();
     fs::write(temp.path().join("new/node_modules/deep/noise.txt"), "noise").unwrap();
     let mut store = open(temp.path());
     assert_eq!(store.capture(&[]).unwrap().saved, 0);
     assert_eq!(store.capture(&[PathBuf::from("new")]).unwrap().saved, 0);
     assert!(store.loops(".env.production").unwrap().is_empty());
-    assert_eq!(store.index.query_row("SELECT COUNT(*) FROM loops", [], |r| r.get::<_,i64>(0)).unwrap(), 0);
+    assert_eq!(
+        store
+            .index
+            .query_row("SELECT COUNT(*) FROM loops", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
     assert!(store.repo.relative(Path::new("../../outside")).is_err());
     #[cfg(unix)]
     {
-        std::os::unix::fs::symlink("file.ts",temp.path().join("linked")).unwrap();
-        git(temp.path(), &["add","linked"]);
+        std::os::unix::fs::symlink("file.ts", temp.path().join("linked")).unwrap();
+        git(temp.path(), &["add", "linked"]);
         assert_eq!(store.capture(&[PathBuf::from("linked")]).unwrap().saved, 0);
     }
-    git(temp.path(), &["add","-A"]);
-    let indexed = Command::new("git").current_dir(temp.path()).args(["ls-files",".paradox"]).output().unwrap();
-    assert!(indexed.stdout.is_empty(), "store metadata must not enter the index");
+    git(temp.path(), &["add", "-A"]);
+    let indexed = Command::new("git")
+        .current_dir(temp.path())
+        .args(["ls-files", ".paradox"])
+        .output()
+        .unwrap();
+    assert!(
+        indexed.stdout.is_empty(),
+        "store metadata must not enter the index"
+    );
 }
 
 #[test]
@@ -102,9 +156,9 @@ fn scan_only_captures_dirty_tracked_files_and_no_commits_is_supported() {
     assert_eq!(store.capture(&[]).unwrap().hashed, 0);
     drop(store);
     let unborn = tempfile::tempdir().unwrap();
-    git(unborn.path(), &["init","-q"]);
+    git(unborn.path(), &["init", "-q"]);
     fs::write(unborn.path().join("file.ts"), "first\n").unwrap();
-    git(unborn.path(), &["add","file.ts"]);
+    git(unborn.path(), &["add", "file.ts"]);
     let mut store = open(unborn.path());
     assert_eq!(save(&mut store).saved, 1);
     assert!(store.loops("file.ts").unwrap()[0].head_sha.is_empty());
@@ -116,28 +170,39 @@ fn blob_integrity_orphan_cleanup_and_schema_guard() {
     let mut store = open(temp.path());
     assert_eq!(save(&mut store).saved, 1);
     let hash = blake3::hash(b"orphan").to_hex().to_string();
-    store.blobs.put(&hash,b"orphan").unwrap();
-    let pending = store.blobs.path(&hash).unwrap().parent().unwrap().join(".pending-abandoned");
-    fs::write(&pending,b"partial").unwrap();
+    store.blobs.put(&hash, b"orphan").unwrap();
+    let pending = store
+        .blobs
+        .path(&hash)
+        .unwrap()
+        .parent()
+        .unwrap()
+        .join(".pending-abandoned");
+    fs::write(&pending, b"partial").unwrap();
     store.gc().unwrap();
     assert!(!store.blobs.exists(&hash).unwrap());
     assert!(!pending.exists());
     let saved = store.loops("file.ts").unwrap();
-    fs::write(store.blobs.path(&saved[0].blob_hash).unwrap(),b"corrupt").unwrap();
+    fs::write(store.blobs.path(&saved[0].blob_hash).unwrap(), b"corrupt").unwrap();
     assert!(store.blobs.get(&saved[0].blob_hash).is_err());
     assert!(store.blobs.path("../../escape").is_err());
-    store.index.execute("UPDATE schema_version SET version=999", []).unwrap();
+    store
+        .index
+        .execute("UPDATE schema_version SET version=999", [])
+        .unwrap();
     let repo = store.repo.clone();
     drop(store);
     assert!(LoopStore::open(repo).is_err());
 }
 
 fn text(seed: u32, len: usize) -> Vec<u8> {
-    let mut bytes = vec![0;len];
+    let mut bytes = vec![0; len];
     let mut hasher = blake3::Hasher::new();
     hasher.update(&seed.to_le_bytes());
     hasher.finalize_xof().fill(&mut bytes);
-    for b in &mut bytes { *b = 33 + *b % 94; }
+    for b in &mut bytes {
+        *b = 33 + *b % 94;
+    }
     bytes
 }
 
@@ -146,22 +211,28 @@ fn evicts_oldest_unpinned_and_keeps_pins_with_bounded_storage() {
     let temp = fixture();
     let mut store = open(temp.path());
     store.config.store_cap_bytes = 400_000;
-    fs::write(temp.path().join("file.ts"),text(0,120_000)).unwrap();
-    assert_eq!(save(&mut store).saved,1);
+    fs::write(temp.path().join("file.ts"), text(0, 120_000)).unwrap();
+    assert_eq!(save(&mut store).saved, 1);
     let pinned = store.loops("file.ts").unwrap()[0].id;
-    store.index.execute("UPDATE loops SET pinned=1 WHERE id=?1", [pinned]).unwrap();
-    fs::write(temp.path().join("file.ts"),text(1,120_000)).unwrap();
-    assert_eq!(save(&mut store).saved,1);
+    store
+        .index
+        .execute("UPDATE loops SET pinned=1 WHERE id=?1", [pinned])
+        .unwrap();
+    fs::write(temp.path().join("file.ts"), text(1, 120_000)).unwrap();
+    assert_eq!(save(&mut store).saved, 1);
     let oldest_unpinned = store.loops("file.ts").unwrap()[0].id;
     for n in 2..8 {
-        fs::write(temp.path().join("file.ts"),text(n,120_000)).unwrap();
-        assert_eq!(save(&mut store).saved,1);
+        fs::write(temp.path().join("file.ts"), text(n, 120_000)).unwrap();
+        assert_eq!(save(&mut store).saved, 1);
         assert!(store.bytes().unwrap() <= store.config.store_cap_bytes);
     }
     let loops = store.loops("file.ts").unwrap();
     assert!(loops.iter().any(|l| l.id == pinned && l.pinned));
     assert!(!loops.iter().any(|l| l.id == oldest_unpinned));
-    assert_eq!(store.blobs.get(&loops[0].blob_hash).unwrap(),text(7,120_000));
+    assert_eq!(
+        store.blobs.get(&loops[0].blob_hash).unwrap(),
+        text(7, 120_000)
+    );
 }
 
 #[test]
@@ -169,14 +240,23 @@ fn worktrees_share_blobs_but_not_file_state() {
     let temp = fixture();
     let other = tempfile::tempdir().unwrap();
     let worktree = other.path().join("worktree");
-    git(temp.path(), &["worktree","add","-b","other",worktree.to_str().unwrap()]);
+    git(
+        temp.path(),
+        &["worktree", "add", "-b", "other", worktree.to_str().unwrap()],
+    );
     let mut first = open(temp.path());
     let root = first.repo.store.clone();
     save(&mut first);
     drop(first);
     let mut second = open(&worktree);
-    assert_eq!(second.repo.store,root);
+    assert_eq!(second.repo.store, root);
     assert!(second.loops("file.ts").unwrap().is_empty());
-    assert_eq!(save(&mut second).saved,1);
-    assert_eq!(second.index.query_row("SELECT COUNT(*) FROM blobs", [], |r| r.get::<_,i64>(0)).unwrap(),1);
+    assert_eq!(save(&mut second).saved, 1);
+    assert_eq!(
+        second
+            .index
+            .query_row("SELECT COUNT(*) FROM blobs", [], |r| r.get::<_, i64>(0))
+            .unwrap(),
+        1
+    );
 }

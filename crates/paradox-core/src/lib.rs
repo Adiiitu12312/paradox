@@ -1,7 +1,7 @@
 //! Shared operations that delegate to the installed Git executable.
-pub mod git;
 pub mod blob;
 pub mod config;
+pub mod git;
 pub mod message;
 pub mod repo;
 pub mod store;

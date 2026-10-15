@@ -18,7 +18,12 @@ impl Default for Config {
             size_limit_bytes: 2_097_152,
             store_cap_bytes: 524_288_000,
             retention_commits: 3,
-            secrets_denylist: vec![".env*".into(), "*.pem".into(), "*.key".into(), "id_rsa*".into()],
+            secrets_denylist: vec![
+                ".env*".into(),
+                "*.pem".into(),
+                "*.key".into(),
+                "id_rsa*".into(),
+            ],
             safety_loop_commands: Vec::new(),
         }
     }
@@ -28,13 +33,22 @@ impl Config {
     pub fn load(root: &Path) -> Result<Self> {
         let path = root.join("config.toml");
         let config = if path.exists() {
-            ensure!(!std::fs::symlink_metadata(&path)?.file_type().is_symlink(), "config must not be a symlink");
+            ensure!(
+                !std::fs::symlink_metadata(&path)?.file_type().is_symlink(),
+                "config must not be a symlink"
+            );
             toml::from_str(&std::fs::read_to_string(path)?)?
         } else {
             Self::default()
         };
-        ensure!(config.size_limit_bytes > 0, "file size limit must be positive");
-        ensure!(config.store_cap_bytes >= 131_072, "store cap must allow at least 128 KiB of metadata");
+        ensure!(
+            config.size_limit_bytes > 0,
+            "file size limit must be positive"
+        );
+        ensure!(
+            config.store_cap_bytes >= 131_072,
+            "store cap must allow at least 128 KiB of metadata"
+        );
         Ok(config)
     }
 }
