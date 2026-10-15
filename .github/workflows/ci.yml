@@ -20,6 +20,12 @@ jobs:
       - run: cargo test --workspace --locked
       - run: cargo test --release --test performance --locked -- --ignored --nocapture
       - run: cargo build --release --locked -p paradox-cli
+      - name: Install Windows terminal test helper on hosted runner
+        if: runner.os == 'Windows'
+        run: python -m pip install --only-binary=:all: "pywinpty>=3,<4"
+      - name: Verify Windows terminal colors, pager, editor and Ctrl+C
+        if: runner.os == 'Windows'
+        run: python scripts/test_terminal.py target/release/paradox.exe
       - name: Verify terminal colors, pager, editor and Ctrl+C
         if: runner.os != 'Windows'
         run: python3 scripts/test_terminal.py target/release/paradox

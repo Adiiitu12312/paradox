@@ -5,6 +5,7 @@ import errno
 import os
 from pathlib import Path
 import select
+import shlex
 import shutil
 import signal
 import subprocess
@@ -13,6 +14,8 @@ import time
 
 
 def terminal(executable, arguments, cwd, env, interrupt=False):
+    if os.name == "nt":
+        return windows_terminal(executable, arguments, cwd, env, interrupt)
     import pty
 
     pid, fd = pty.fork()
@@ -51,6 +54,34 @@ def terminal(executable, arguments, cwd, env, interrupt=False):
                 pass
             os.waitpid(pid, 0)
         os.close(fd)
+
+
+def windows_terminal(executable, arguments, cwd, env, interrupt):
+    # This helper is installed only on GitHub's hosted Windows runner.
+    from winpty import PtyProcess
+
+    process = PtyProcess.spawn([executable, *arguments], cwd=str(cwd), env=env)
+    output = bytearray()
+    sent_interrupt = False
+    deadline = time.monotonic() + 15
+    try:
+        while time.monotonic() < deadline:
+            if select.select([process.fileobj], [], [], 0.05)[0]:
+                try:
+                    output.extend(process.read(65536).encode("utf-8"))
+                except EOFError:
+                    break
+                if interrupt and b"SIGNAL_READY" in output and not sent_interrupt:
+                    process.sendintr()
+                    sent_interrupt = True
+            elif not process.isalive():
+                break
+        assert not process.isalive(), f"terminal command timed out: {arguments}: {output!r}"
+        if interrupt:
+            assert sent_interrupt, output
+        return process.exitstatus, bytes(output)
+    finally:
+        process.close(force=True)
 
 
 def main():
@@ -99,9 +130,9 @@ def main():
         run("restore", "file.txt")
 
         pager = root / "pager.sh"
-        pager.write_text("#!/bin/sh\ntest -t 1 || exit 91\nprintf 'PAGER_TTY_OK\\n'\ncat\n")
+        pager.write_bytes(b"#!/bin/sh\ntest -t 1 || exit 91\nprintf 'PAGER_TTY_OK\\n'\ncat\n")
         pager.chmod(0o755)
-        paged_env = {**env, "GIT_PAGER": str(pager)}
+        paged_env = {**env, "GIT_PAGER": shlex.quote(pager.as_posix())}
         command = ["--paginate", "log", "--oneline"]
         direct = terminal(git, command, root, paged_env)
         wrapped = terminal(binary, command, root, paged_env)
@@ -110,9 +141,9 @@ def main():
         print("PASS: Git launches its pager with a terminal")
 
         editor = root / "editor.sh"
-        editor.write_text("#!/bin/sh\ntest -t 0 && test -t 1 || exit 92\nprintf 'EDITOR_TTY_OK\\n'\n")
+        editor.write_bytes(b"#!/bin/sh\ntest -t 0 && test -t 1 || exit 92\nprintf 'EDITOR_TTY_OK\\n'\n")
         editor.chmod(0o755)
-        edited_env = {**env, "GIT_SEQUENCE_EDITOR": str(editor)}
+        edited_env = {**env, "GIT_SEQUENCE_EDITOR": shlex.quote(editor.as_posix())}
         for executable in [git, binary]:
             result = terminal(executable, ["rebase", "-i", "HEAD~1"], root, edited_env)
             assert result[0] == 0 and b"EDITOR_TTY_OK" in result[1], result
