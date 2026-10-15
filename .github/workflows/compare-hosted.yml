@@ -1,0 +1,39 @@
+name: Compare hosted macOS binaries
+on:
+  workflow_dispatch:
+    inputs:
+      previous_run:
+        description: Previous passing build run
+        required: true
+      candidate_run:
+        description: Candidate build run
+        required: true
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compare:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - uses: actions/download-artifact@v4
+        with:
+          name: paradox-macOS-ARM64
+          path: previous
+          run-id: ${{ inputs.previous_run }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: paradox-macOS-ARM64
+          path: candidate
+          run-id: ${{ inputs.candidate_run }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - run: chmod +x previous/paradox candidate/paradox
+      - name: Measure previous binary against unchanged gates
+        continue-on-error: true
+        run: node scripts/benchmark_host.mjs "$PWD/previous/paradox"
+      - name: Measure candidate binary against unchanged gates
+        run: node scripts/benchmark_host.mjs "$PWD/candidate/paradox"
