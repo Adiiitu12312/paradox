@@ -21,6 +21,61 @@ struct Options {
     session_child: Option<String>,
 }
 
+#[cfg(windows)]
+mod detached_handles {
+    use std::ffi::c_void;
+    use std::io;
+
+    const HANDLE_FLAG_INHERIT: u32 = 1;
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn GetStdHandle(which: u32) -> *mut c_void;
+        fn GetHandleInformation(handle: *mut c_void, flags: *mut u32) -> i32;
+        fn SetHandleInformation(handle: *mut c_void, mask: u32, flags: u32) -> i32;
+    }
+
+    /// The launcher can itself have inherited capture pipes. Redirecting the
+    /// detached child's stdio does not stop CreateProcess from inheriting those
+    /// original handles too, keeping its caller's output() blocked on EOF.
+    /// Command duplicates the explicitly selected null/log handles separately.
+    pub struct Guard(Vec<(*mut c_void, u32)>);
+
+    impl Guard {
+        pub fn new() -> io::Result<Self> {
+            let mut guard = Self(Vec::new());
+            for which in [-10i32, -11, -12] {
+                // These borrowed standard handles remain owned by the process.
+                let handle = unsafe { GetStdHandle(which as u32) };
+                if handle.is_null() || handle as isize == -1 {
+                    continue;
+                }
+                let mut flags = 0;
+                if unsafe { GetHandleInformation(handle, &mut flags) } == 0 {
+                    return Err(io::Error::last_os_error());
+                }
+                if flags & HANDLE_FLAG_INHERIT != 0 {
+                    guard.0.push((handle, flags));
+                    if unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, 0) } == 0 {
+                        return Err(io::Error::last_os_error());
+                    }
+                }
+            }
+            Ok(guard)
+        }
+    }
+
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            for &(handle, flags) in self.0.iter().rev() {
+                // Restore on success, spawn error, or unwinding. Never close a
+                // standard handle or change unrelated handle flag bits.
+                unsafe { SetHandleInformation(handle, HANDLE_FLAG_INHERIT, flags) };
+            }
+        }
+    }
+}
+
 #[cfg(unix)]
 fn detach() -> Result<()> {
     // This runs in a fresh single-threaded child, before notify or Ctrl+C
@@ -112,7 +167,13 @@ pub fn run(args: &[OsString], index: usize) -> Result<i32> {
             command.creation_flags(0x00000008 | 0x00000200);
         }
         paradox_core::watch::wait_started(&repo, &token, || {
-            let mut child = command.spawn().context("could not start watch session")?;
+            #[cfg(windows)]
+            let inherited_stdio = detached_handles::Guard::new()
+                .context("could not isolate detached watch standard handles")?;
+            let spawn = command.spawn();
+            #[cfg(windows)]
+            drop(inherited_stdio);
+            let mut child = spawn.context("could not start watch session")?;
             #[cfg(unix)]
             ensure!(child.wait()?.success(), "watch detachment failed");
             #[cfg(windows)]

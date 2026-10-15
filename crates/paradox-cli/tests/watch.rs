@@ -547,8 +547,6 @@ fn idle_exit_leaves_no_child_and_never_auto_starts() {
 fn background_session_detaches_and_stops() {
     let temp = fixture(1);
     let root = temp.path();
-    let line = px(root, &["watch", "--background"]);
-    assert!(line.contains("Paradox watching "), "{line}");
     struct Cleanup<'a>(&'a Path);
     impl Drop for Cleanup<'_> {
         fn drop(&mut self) {
@@ -558,6 +556,16 @@ fn background_session_detaches_and_stops() {
         }
     }
     let _cleanup = Cleanup(root);
+    let child = command(root, env!("CARGO_BIN_EXE_paradox"))
+        .args(["watch", "--background"])
+        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
+        .spawn().unwrap();
+    let (sender, receiver) = mpsc::channel();
+    std::thread::spawn(move || { let _ = sender.send(child.wait_with_output()); });
+    let line = ok(receiver.recv_timeout(Duration::from_secs(20))
+        .expect("background launcher retained output pipes after detaching").unwrap());
+    assert!(line.contains("Paradox watching "), "{line}");
+    assert!(line.contains("stops after 30 min idle"), "{line}");
     let status = px(root, &["watch", "--status"]);
     assert!(status.starts_with("running pid="));
     let pid: u32 = status
