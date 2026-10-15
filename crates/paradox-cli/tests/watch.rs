@@ -369,6 +369,7 @@ fn paced_bulk_promotes_earlier_watcher_saves_and_keeps_latest_content() {
     fs::write(root.join("src/0.ts"), "//> earlier settled save\nfirst\n").unwrap();
     wait_for(|| count(root) == 1);
     let latest = "//> latest bulk state\nlatest\n";
+    let burst_started = Instant::now();
     fs::write(root.join("src/0.ts"), latest).unwrap();
     for i in 1..51 {
         fs::write(
@@ -378,17 +379,23 @@ fn paced_bulk_promotes_earlier_watcher_saves_and_keeps_latest_content() {
         .unwrap();
         std::thread::sleep(Duration::from_millis(15));
     }
-    wait_for(|| {
-        store(root)
-            .index
-            .query_row(
-                "SELECT COUNT(*) FROM loops WHERE kind='scan' AND message='bulk change'",
-                [],
-                |r| r.get::<_, i64>(0),
-            )
-            .unwrap()
-            == 51
-    });
+    let burst_elapsed = burst_started.elapsed();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let current = store(root);
+        let scans: i64 = current.index.query_row(
+            "SELECT COUNT(*) FROM loops WHERE kind='scan' AND message='bulk change'",
+            [], |r| r.get(0),
+        ).unwrap();
+        if scans == 51 { break; }
+        assert!(Instant::now() < deadline,
+            "paced bulk: burst={burst_elapsed:?}; scans={scans}; total={}; file0={:?}; log={}",
+            current.index.query_row("SELECT COUNT(*) FROM loops", [], |r| r.get::<_, i64>(0)).unwrap(),
+            current.loops("src/0.ts").unwrap().iter().map(|row| (&row.message, &row.kind)).collect::<Vec<_>>(),
+            fs::read_to_string(root.join(".paradox/log")).unwrap_or_default());
+        drop(current);
+        std::thread::sleep(Duration::from_millis(50));
+    }
     std::thread::sleep(Duration::from_millis(500));
     let store = store(root);
     assert_eq!(

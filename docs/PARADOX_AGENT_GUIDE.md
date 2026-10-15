@@ -25,11 +25,12 @@ it. Do not undo work with raw `git reset --hard`, `checkout --` or `clean`.
 After `paradox init`, VS Code/Cursor's recommended Run-on-Save extension and
 supported Claude PostToolUse hooks invoke capture. When a tool has no post-edit
 hook, ensure a manual watch session is running: explicitly start
-`paradox watch --background`, or tell the user if it cannot be started. Watch
-arrives in M4.5, immediately after M4; until then, invoke `paradox loop <file>`
-after each edit and report that watch is unavailable. Nothing starts it
-automatically. Once available, stop a session with `paradox watch --stop` or
-Ctrl+C in foreground mode.
+`paradox watch --background`, or tell the user if it cannot be started. Inspect
+it with `paradox watch --status`. Nothing starts it automatically. Stop a
+session with `paradox watch --stop` or Ctrl+C in foreground mode. The default
+idle timeout is 30 minutes; `watch_idle_minutes = 0` disables that timeout.
+On Linux, heed any inotify coverage warning: it lists uncovered directories and
+explains how to raise the watch limit.
 
 Commit with `paradox commit -m "message"`, or name files to commit only those
 paths. Git's staged content loses valid marker lines; working files keep them.

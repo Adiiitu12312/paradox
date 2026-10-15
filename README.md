@@ -9,11 +9,12 @@ The [M2 verification report](docs/milestones/M2.md) records capture tests and ti
 The [M3 verification report](docs/milestones/M3.md) records history, rewind and tracking validation.
 This build implements the dispatcher, loop capture, per-file history, compare,
 undoable rewind, pins, tracking, setup, editor/AI hooks and commit handling.
-Functional and terminal checks pass on all three OSes. The latest macOS timing
-gate remains red; its strict 5 ms limit and stored baseline are unchanged.
+Functional and terminal checks pass on all three OSes. Pass-through timing uses
+201 interleaved samples per executable in each of three rounds; two rounds must
+exceed the existing ceiling to fail. OS limits and stored baselines are unchanged.
 See the [M4 report](docs/milestones/M4.md) for the accepted boundary exception.
-M4.5 adds the manual watcher next; the UI arrives later. Do not alias `git` to
-this development build.
+M4.5's manual watcher is implemented and undergoing final acceptance; the UI
+arrives later. Do not alias `git` to this development build.
 
 ## Build on GitHub (preferred for this project)
 
@@ -113,7 +114,7 @@ refused because discovery output would be ambiguous; Git pass-through still
 preserves its original operating-system arguments.
 
 M4 adds commit-time marker stripping and editor/AI hook setup through explicit
-`paradox init`. `watch` arrives in M4.5.
+`paradox init`. M4.5 adds manually started `watch` sessions.
 
 ## History and rewind (M3)
 
@@ -190,7 +191,7 @@ into VS Code/Cursor's Run-on-Save settings, recommends `emeraldwalk.runonsave`,
 and merges a Claude PostToolUse hook for Edit/Write/MultiEdit. Install/enable the
 recommended extension in the editor for its save event to run. The AI adapter
 reads JSON from stdin and passes edited file paths directly to capture without
-shell interpolation. Tools without an edit hook will use the manually started
+shell interpolation. Tools without an edit hook use the manually started
 watcher in M4.5; init never starts it. Print-only options install nothing and
 work outside a Git repository. Other snippet choices are `jetbrains` and `sublime`.
 
@@ -289,6 +290,11 @@ M6–M8 browser UI; M9 hardening and release documentation.
 The [M4.5 watcher](docs/milestones/M4.5-watch.md) covers agents/tools with no edit
 hook. Start it explicitly with `paradox watch` or `paradox watch --background`;
 stop it with Ctrl+C or `paradox watch --stop`, and inspect it with `--status`.
-These commands arrive in M4.5. It is never automatic and never installed as a
-service. Idle sessions stop after 30 minutes by default. Linux users will get an
-explicit coverage warning and instructions if the inotify watch limit is too low.
+It is never automatic and never installed as a service. Idle sessions stop after
+30 minutes by default; set `watch_idle_minutes = 0` in `.paradox/config.toml` to
+disable idle exit. Only eligible tracked-file directories are watched, with
+300 ms per-file debounce and bulk-operation protection. Linux users get an exact
+coverage warning if the inotify watch limit is too low; raise
+`fs.inotify.max_user_watches` with `sysctl` as the warning describes.
+Background notices go to `.paradox/watch-output.log`; capture errors go to
+`.paradox/log`. See the [M4.5 verification report](docs/milestones/M4.5.md).

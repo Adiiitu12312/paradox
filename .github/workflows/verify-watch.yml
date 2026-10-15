@@ -1,0 +1,35 @@
+name: Verify watcher behavior
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  watch:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-15
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    env:
+      CARGO_BUILD_TARGET: ${{ matrix.target }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - run: cargo fmt --all
+      - run: git diff --binary > preparation.patch
+      - uses: actions/upload-artifact@v4
+        with:
+          name: watch-preparation-${{ runner.os }}
+          path: preparation.patch
+          retention-days: 1
+      - run: cargo test --locked -p paradox-core --lib bulk_classification -- --nocapture
+      - run: cargo test --locked -p paradox-cli --features fault-injection --test watch -- --nocapture
