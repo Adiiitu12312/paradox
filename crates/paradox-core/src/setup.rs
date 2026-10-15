@@ -58,8 +58,9 @@ pub fn hook_script(exe: &Path, previous: Option<&Path>, event: Option<&str>) -> 
     let mut script = String::from("#!/bin/sh\n# Paradox managed hook\n");
     if let Some(previous) = previous {
         script.push_str(&format!(
-            "{} \"$@\" || exit $?\n",
+            "{} \"$@\"{}\n",
             shell_quote(previous.to_str().context("hook path must be UTF-8")?)
+            , if event == Some("post-commit") { "" } else { " || exit $?" }
         ));
     }
     if let Some(event) = event {
