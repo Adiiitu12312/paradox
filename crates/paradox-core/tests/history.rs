@@ -464,7 +464,9 @@ fn empty_file_presence_is_visible_and_binary_targets_are_refused() {
     let mut store = open(root.path());
     let empty = save(&mut store, "a.ts", b"");
     fs::remove_file(root.path().join("a.ts")).unwrap();
-    store.rewind_file(Path::new("a.ts"), &empty.to_string()).unwrap();
+    store
+        .rewind_file(Path::new("a.ts"), &empty.to_string())
+        .unwrap();
     let absent = store.resolve("a.ts", "undo").unwrap();
     let working = store.resolve("a.ts", "working").unwrap();
     let diff = store.compare("a.ts", &absent, &working).unwrap();
@@ -476,7 +478,10 @@ fn empty_file_presence_is_visible_and_binary_targets_are_refused() {
     let mut store = open(root.path());
     save(&mut store, "a.ts", b"safe current text\n");
     assert!(store.rewind_file(Path::new("a.ts"), "HEAD").is_err());
-    assert_eq!(fs::read(root.path().join("a.ts")).unwrap(), b"safe current text\n");
+    assert_eq!(
+        fs::read(root.path().join("a.ts")).unwrap(),
+        b"safe current text\n"
+    );
 }
 
 fn noisy_text(seed: u32) -> Vec<u8> {
@@ -484,7 +489,9 @@ fn noisy_text(seed: u32) -> Vec<u8> {
     let mut hash = blake3::Hasher::new();
     hash.update(&seed.to_le_bytes());
     hash.finalize_xof().fill(&mut bytes);
-    for byte in &mut bytes { *byte = 33 + *byte % 94; }
+    for byte in &mut bytes {
+        *byte = 33 + *byte % 94;
+    }
     let mut text = b"value ".to_vec();
     text.extend(bytes);
     text
@@ -501,15 +508,34 @@ fn insufficient_batch_backup_space_changes_no_working_file() {
     save(&mut store, "a.ts", &new_a);
     save(&mut store, "b.ts", &new_b);
     let plans = [
-        RewindPlan { path: "a.ts".into(), version: store.resolve("a.ts", &old_a.to_string()).unwrap() },
-        RewindPlan { path: "b.ts".into(), version: store.resolve("b.ts", &old_b.to_string()).unwrap() },
+        RewindPlan {
+            path: "a.ts".into(),
+            version: store.resolve("a.ts", &old_a.to_string()).unwrap(),
+        },
+        RewindPlan {
+            path: "b.ts".into(),
+            version: store.resolve("b.ts", &old_b.to_string()).unwrap(),
+        },
     ];
     store.config.store_cap_bytes = 150_000;
     assert!(store.apply_rewinds(&plans).is_err());
     assert_eq!(fs::read(root.path().join("a.ts")).unwrap(), new_a);
     assert_eq!(fs::read(root.path().join("b.ts")).unwrap(), new_b);
-    assert_eq!(store.index.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0)).unwrap(), "ok");
-    assert_eq!(store.index.query_row("SELECT COUNT(*) FROM operation_pins", [], |row| row.get::<_, i64>(0)).unwrap(), 0);
+    assert_eq!(
+        store
+            .index
+            .query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+            .unwrap(),
+        "ok"
+    );
+    assert_eq!(
+        store
+            .index
+            .query_row("SELECT COUNT(*) FROM operation_pins", [], |row| row
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
     assert_eq!(store.loops("a.ts").unwrap().len(), 2);
     assert_eq!(store.loops("b.ts").unwrap().len(), 2);
 }

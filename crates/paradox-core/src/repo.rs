@@ -237,17 +237,17 @@ impl Repo {
             }
             if entry.first() == Some(&b'2')
                 && let Some(old) = entries.next()
-                    && entry
+                && entry
+                    .splitn(10, |byte| *byte == b' ')
+                    .nth(8)
+                    .is_some_and(|score| score.starts_with(b"R"))
+                && let (Ok(old), Some(new)) = (
+                    std::str::from_utf8(old),
+                    entry
                         .splitn(10, |byte| *byte == b' ')
-                        .nth(8)
-                        .is_some_and(|score| score.starts_with(b"R"))
-                    && let (Ok(old), Some(new)) = (
-                        std::str::from_utf8(old),
-                        entry
-                            .splitn(10, |byte| *byte == b' ')
-                            .nth(9)
-                            .and_then(|path| std::str::from_utf8(path).ok()),
-                    )
+                        .nth(9)
+                        .and_then(|path| std::str::from_utf8(path).ok()),
+                )
             {
                 renames.push((old.into(), new.into()));
             }
