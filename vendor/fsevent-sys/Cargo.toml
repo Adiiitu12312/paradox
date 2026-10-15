@@ -1,0 +1,14 @@
+[package]
+name = "fsevent-sys"
+version = "4.1.0"
+edition = "2018"
+authors = ["Pierre Baillet <pierre@baillet.name>"]
+description = "Rust bindings to the fsevent macOS API for file changes notifications"
+license = "MIT"
+repository = "https://github.com/octplane/fsevent-rust/tree/master/fsevent-sys"
+
+[dependencies]
+libc = "0.2.68"
+
+# Isolated prototype; not adopted by the parent workspace.
+[workspace]

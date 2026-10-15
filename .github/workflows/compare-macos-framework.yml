@@ -1,0 +1,83 @@
+name: Compare lazy macOS CoreServices (non-gating)
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  compare:
+    runs-on: macos-15
+    timeout-minutes: 25
+    env:
+      CARGO_BUILD_TARGET: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Build unchanged O3 baseline
+        run: |
+          mkdir -p startup-candidates framework-diagnostics
+          rustc --version > framework-diagnostics/tool-versions.txt
+          cargo --version >> framework-diagnostics/tool-versions.txt
+          git --version >> framework-diagnostics/tool-versions.txt
+          sw_vers >> framework-diagnostics/tool-versions.txt
+          cargo build --release --locked -p paradox-cli
+          cp target/aarch64-apple-darwin/release/paradox startup-candidates/O3
+      - name: Prepare isolated vendor formatting patch
+        if: ${{ !cancelled() }}
+        run: |
+          cargo fmt --manifest-path vendor/fsevent-sys/Cargo.toml
+          git diff --binary -- vendor/fsevent-sys > framework-diagnostics/framework-preparation.patch
+      - name: Build bare exec-only control
+        if: ${{ !cancelled() }}
+        run: |
+          cat > framework-diagnostics/exec-only.rs <<'RS'
+          use std::os::unix::process::CommandExt;
+          fn main() {
+              let error = std::process::Command::new("git")
+                  .args(std::env::args_os().skip(1)).exec();
+              eprintln!("{error}");
+              std::process::exit(127);
+          }
+          RS
+          rustc framework-diagnostics/exec-only.rs --edition=2024 -C opt-level=3 -C lto=fat -C codegen-units=1 -C panic=abort -C strip=symbols -o startup-candidates/ExecOnly
+      - name: Test candidate native symbol table
+        if: ${{ !cancelled() }}
+        run: cargo test --manifest-path vendor/fsevent-sys/Cargo.toml --lib -- --nocapture
+      - name: Build lazy candidate with a runner-only Cargo patch
+        if: ${{ !cancelled() }}
+        run: |
+          cargo build --release -p paradox-cli --config 'patch.crates-io.fsevent-sys.path="vendor/fsevent-sys"'
+          cp target/aarch64-apple-darwin/release/paradox startup-candidates/LazyCoreServices
+      - name: Verify direct CoreServices load command is absent in candidate
+        if: ${{ !cancelled() }}
+        run: |
+          otool -L startup-candidates/O3 > framework-diagnostics/O3-libraries.txt
+          otool -L startup-candidates/LazyCoreServices > framework-diagnostics/LazyCoreServices-libraries.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          baseline = Path('framework-diagnostics/O3-libraries.txt').read_text()
+          candidate = Path('framework-diagnostics/LazyCoreServices-libraries.txt').read_text()
+          assert 'CoreServices.framework' in baseline, baseline
+          assert 'CoreServices.framework' not in candidate, candidate
+          print('Candidate has no direct CoreServices framework load command')
+          PY
+      - name: Run all watcher acceptance tests against candidate
+        if: ${{ !cancelled() }}
+        run: cargo test --locked -p paradox-cli --features fault-injection --test watch --config 'patch.crates-io.fsevent-sys.path="vendor/fsevent-sys"' -- --nocapture
+      - name: Record same-host paired comparison without changing gates
+        if: ${{ !cancelled() }}
+        run: >-
+          python3 scripts/diagnose_macos_startup.py
+          --candidate O3="$PWD/startup-candidates/O3"
+          --candidate LazyCoreServices="$PWD/startup-candidates/LazyCoreServices"
+          --candidate ExecOnly="$PWD/startup-candidates/ExecOnly"
+          --output "$PWD/framework-diagnostics"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-framework-comparison
+          path: framework-diagnostics
+          retention-days: 7

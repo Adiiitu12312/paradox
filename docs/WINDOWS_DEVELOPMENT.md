@@ -29,8 +29,14 @@ Microsoft documents the lack of individual Smart App Control exceptions in its
 See also [Protection History](https://support.microsoft.com/en-us/windows/security/windows-security/protection-history-in-the-windows-security-app).
 
 The agent has not changed these settings, added antivirus exclusions or bypassed
-the policy. Hosted CLI checks can continue independently. After you change an
-applicable setting yourself, say so before another local test is attempted.
+the policy. The owner subsequently confirmed turning Smart App Control off.
+A local smoke check at 10:36 UTC on October 15 ran the Windows artifact from
+run `38719356751` (source `e8f0f55`) through existing Node v26.4.0 in a disposable
+OS-temp repository. Version/status matched Git; a manually started background
+watcher captured exactly one save with its message; stop released the session
+and the watcher process exited. The temporary repository was removed afterward.
+Local development execution is therefore unblocked; no Node change was needed.
+That run's macOS performance failure remains a separate acceptance issue.
 
 UI work will use the existing local Node/npm and browser when its milestone
 arrives. Minimal local Rust tools are permitted only if that work needs them;
