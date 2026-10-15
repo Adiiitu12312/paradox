@@ -18,6 +18,7 @@ pub struct LoopStore {
     pub index: Connection,
     denylist: GlobSet,
     pending_stats: Vec<(String, (i64, u64))>,
+    checked_dirs: HashSet<std::path::PathBuf>,
     _lock: File,
 }
 
@@ -144,6 +145,7 @@ impl LoopStore {
             index,
             denylist,
             pending_stats: Vec::new(),
+            checked_dirs: HashSet::new(),
             _lock: lock,
         };
         Ok(store)
@@ -215,6 +217,7 @@ impl LoopStore {
     /// Explicit files are checked against Git using literal pathspecs; no tree scan.
     /// An empty selection scans only Git's tracked set, never new directories.
     pub fn capture(&mut self, inputs: &[std::path::PathBuf]) -> Result<CaptureReport> {
+        self.checked_dirs.clear();
         let selected = inputs
             .iter()
             .map(|p| self.repo.relative(p))
@@ -240,7 +243,8 @@ impl LoopStore {
         } else {
             self.repo.tracked(&selected)?.into_iter().collect()
         };
-        if !cached && !selected.is_empty()
+        if !cached
+            && !selected.is_empty()
             && let Some(signature) = signature
         {
             for path in &tracked {
@@ -319,7 +323,7 @@ impl LoopStore {
         if self.denied(path) {
             return Ok((false, false, true));
         }
-        let Some(meta) = self.repo.regular_file(path)? else {
+        let Some(meta) = self.repo.regular_file_cached(path, &mut self.checked_dirs)? else {
             return Ok((false, false, true));
         };
         if meta.len() > self.config.size_limit_bytes {
