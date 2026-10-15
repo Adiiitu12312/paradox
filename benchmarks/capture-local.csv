@@ -1,0 +1,4 @@
+# Local Node spawnSync end-to-end diagnostic; CLI scan includes process startup.
+# Do not compare its CLI scan directly to the in-process CI stat-scan baseline.
+os,source,binary_run_id,tracked_files,save_median_ms,cli_scan_median_ms,git_rev_parse_median_ms,node_version,measured_saves,warmup_saves
+windows,ab34e08,38776343939,50000,62.8625,455.7416,26.2828,26.4.0,21,8

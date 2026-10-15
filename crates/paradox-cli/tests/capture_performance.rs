@@ -8,6 +8,8 @@ use std::time::{Duration, Instant};
 #[test]
 #[ignore = "release-only 50,000-file capture performance gate"]
 fn fifty_thousand_files_single_save_and_warm_scan() {
+    let binary = std::env::var_os("PARADOX_BENCH_BINARY")
+        .unwrap_or_else(|| env!("CARGO_BIN_EXE_paradox").into());
     let row = include_str!("../../../benchmarks/capture.csv")
         .lines()
         .find(|line| line.starts_with(&format!("{},", std::env::consts::OS)))
@@ -79,7 +81,7 @@ fn fifty_thousand_files_single_save_and_warm_scan() {
         .unwrap();
         let started = Instant::now();
         assert!(
-            Command::new(env!("CARGO_BIN_EXE_paradox"))
+            Command::new(&binary)
                 .args(["loop", "files-000/file-000.ts"])
                 .current_dir(root.path())
                 .stdout(Stdio::null())

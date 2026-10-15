@@ -6,8 +6,11 @@ import json
 from pathlib import Path
 import tempfile
 import unittest
+from unittest import mock
+import subprocess
 
 import passthrough_ci as gate
+import capture_ci
 
 
 def report(operating_system, attempt, exceeded=False):
@@ -114,6 +117,113 @@ class AggregationTests(unittest.TestCase):
                                        "difference_ns": difference} for difference in differences]
             measurement.update(git_median_ns=10, paradox_median_ns=8, overhead_ns=0)
         self.assess(reports)
+
+
+class SelectionTests(unittest.TestCase):
+    def exercise(self, targets, selected="performance"):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            rows = []
+            for number, name in enumerate(targets):
+                path = root / f"harness-{number}"
+                path.write_bytes(f"{name}-{number}".encode())
+                rows.append(dict(reason="compiler-artifact", target=dict(name=name),
+                                 profile=dict(test=True), executable=str(path)))
+            # Non-test binaries and artifacts without executables are ineligible.
+            rows.extend([dict(reason="compiler-artifact", target=dict(name=selected),
+                              profile=dict(test=False), executable="must-not-copy"),
+                         dict(reason="compiler-artifact", target=dict(name=selected),
+                              profile=dict(test=True), executable=None)])
+            log = root / "build.jsonl"
+            log.write_text("\n".join(json.dumps(row) for row in rows), encoding="utf-8")
+            destination = root / "packaged" / "harness"
+            if selected == "performance":
+                gate.select(log, destination)
+            else:
+                gate.select(log, destination, selected)
+            return destination.read_bytes()
+
+    def test_default_preserves_performance_selection(self):
+        self.assertEqual(self.exercise(["pending", "performance", "capture_performance"]),
+                         b"performance-1")
+
+    def test_specific_targets_select_only_the_matching_test_executable(self):
+        targets = ["performance", "pending", "capture_performance"]
+        for number, target in enumerate(targets):
+            with self.subTest(target=target):
+                self.assertEqual(self.exercise(targets, target), f"{target}-{number}".encode())
+
+    def test_missing_target_refuses_selection(self):
+        with self.assertRaisesRegex(ValueError, "one pending"):
+            self.exercise(["performance", "capture_performance"], "pending")
+
+    def test_duplicate_target_refuses_ambiguous_selection(self):
+        with self.assertRaisesRegex(ValueError, "one capture_performance"):
+            self.exercise(["capture_performance", "performance", "capture_performance"],
+                          "capture_performance")
+
+
+class CaptureRunnerTests(unittest.TestCase):
+    def exercise(self, first_failure=None, mutate=False, empty=False):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            paths = [root / name for name in ("pending", "capture", "paradox")]
+            for path in paths:
+                path.write_bytes(path.name.encode())
+            calls = []
+
+            def run(command, **kwargs):
+                calls.append(command)
+                self.assertEqual(kwargs["env"]["PARADOX_BENCH_BINARY"], str(paths[2].resolve()))
+                if len(calls) == 1 and first_failure == "timeout":
+                    raise subprocess.TimeoutExpired(command, kwargs["timeout"])
+                if len(calls) == 1 and first_failure == "spawn":
+                    raise OSError("cannot launch harness")
+                code = 101 if len(calls) == 1 and first_failure == "exit" else 0
+                kwargs["stdout"].write("test result: ok. 0 passed;\n" if empty else
+                                       "test result: ok. 1 passed;\n")
+                if mutate and len(calls) == 1:
+                    paths[2].write_bytes(b"different executable")
+                return subprocess.CompletedProcess(command, code)
+
+            environment = {name: "fixture" for name in ("GITHUB_SHA", "RUNNER_OS", "RUNNER_ARCH",
+                            "ImageOS", "ImageVersion", "GITHUB_RUN_ID", "GITHUB_RUN_ATTEMPT")}
+            with mock.patch.dict(capture_ci.os.environ, environment), \
+                    mock.patch.object(capture_ci.subprocess, "run", side_effect=run), \
+                    mock.patch.object(capture_ci.subprocess, "check_output", return_value="git fixture\n"), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                code = capture_ci.run(*paths, root / "reports")
+            result = json.loads((root / "reports/report.json").read_text(encoding="utf-8"))
+            self.assertEqual(len(calls), 2)
+            self.assertEqual(calls[0][-1], "twenty_contended_savers_queue_paths_and_holder_drains_exact_final_content")
+            self.assertIn("--ignored", calls[1])
+            self.assertEqual(result["source"], "fixture")
+            self.assertTrue((root / "reports/pending.stderr.log").exists())
+            self.assertTrue((root / "reports/capture.stdout.log").exists())
+            return code, result
+
+    def test_both_gates_run_once_and_success_retains_hashes(self):
+        code, report = self.exercise()
+        self.assertEqual(code, 0)
+        self.assertTrue(report["passed"])
+        for item in report["executables"].values():
+            self.assertEqual(item["sha256_before"], item["sha256_after"])
+
+    def test_capture_still_runs_after_pending_exit_timeout_or_spawn_failure(self):
+        for failure in ("exit", "timeout", "spawn"):
+            with self.subTest(failure=failure):
+                code, report = self.exercise(first_failure=failure)
+                self.assertEqual(code, 1)
+                self.assertFalse(report["passed"])
+                self.assertEqual(report["assessments"][1]["returncode"], 0)
+
+    def test_mutated_executable_and_empty_test_filter_cannot_pass(self):
+        code, report = self.exercise(mutate=True)
+        self.assertEqual(code, 1)
+        self.assertTrue(any("changed during" in error for error in report["errors"]))
+        code, report = self.exercise(empty=True)
+        self.assertEqual(code, 1)
+        self.assertTrue(any("one passing test" in error for error in report["errors"]))
 
 
 if __name__ == "__main__":

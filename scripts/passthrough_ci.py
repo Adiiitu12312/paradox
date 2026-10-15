@@ -23,16 +23,17 @@ def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
-def select(build_log, destination):
+def select(build_log, destination, target="performance"):
+    require(isinstance(target, str) and bool(target), "test target must be nonempty")
     executables = []
     for line in Path(build_log).read_text(encoding="utf-8").splitlines():
         item = json.loads(line)
         if (item.get("reason") == "compiler-artifact"
-                and item.get("target", {}).get("name") == "performance"
+                and item.get("target", {}).get("name") == target
                 and item.get("profile", {}).get("test")
                 and item.get("executable")):
             executables.append(item["executable"])
-    require(len(executables) == 1, f"expected one performance test executable: {executables}")
+    require(len(executables) == 1, f"expected one {target} test executable: {executables}")
     destination = Path(destination)
     destination.parent.mkdir(parents=True, exist_ok=True)
     shutil.copy2(executables[0], destination)
@@ -164,6 +165,7 @@ def main():
     pick = commands.add_parser("select")
     pick.add_argument("build_log")
     pick.add_argument("destination")
+    pick.add_argument("--target", default="performance")
     run = commands.add_parser("record")
     run.add_argument("test_exe")
     run.add_argument("binary")
@@ -173,7 +175,7 @@ def main():
     vote.add_argument("directory")
     args = parser.parse_args()
     if args.command == "select":
-        select(args.build_log, args.destination)
+        select(args.build_log, args.destination, args.target)
     elif args.command == "record":
         record(args.test_exe, args.binary, args.report, args.attempt)
     else:

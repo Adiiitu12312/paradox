@@ -43,8 +43,6 @@ jobs:
       - run: cargo test --workspace --locked --features paradox-cli/fault-injection --no-fail-fast
       - run: cargo build --release --locked -p paradox-cli
         id: release
-      - name: Record release contended save handoff timing and enforce stored OS baseline
-        run: cargo test --release --locked -p paradox-core --test pending -- --nocapture
       - name: Gate native graph first-page latency on 100,000 commits
         run: cargo test --release --locked -p paradox-core --test ui_git first_graph_page_on_one_hundred_thousand_commits_is_bounded_and_fast -- --nocapture
       - name: Install hosted browser for UI integration tests
@@ -96,11 +94,15 @@ jobs:
         shell: bash
         run: |
           cargo test --release --test performance --locked --no-run --message-format=json > performance-build.jsonl
+          cargo test --release --locked -p paradox-core --test pending --no-run --message-format=json > pending-build.jsonl
+          cargo test --release --locked -p paradox-cli --test capture_performance --no-run --message-format=json > capture-build.jsonl
           mkdir -p benchmark-bin
           suffix=''
           if [ "$RUNNER_OS" = Windows ]; then suffix='.exe'; fi
           cp "target/${{ matrix.target }}/release/paradox$suffix" "benchmark-bin/paradox$suffix"
           python scripts/passthrough_ci.py select performance-build.jsonl "benchmark-bin/performance-test$suffix"
+          python scripts/passthrough_ci.py select pending-build.jsonl "benchmark-bin/pending-test$suffix" --target pending
+          python scripts/passthrough_ci.py select capture-build.jsonl "benchmark-bin/capture-test$suffix" --target capture_performance
       - uses: actions/upload-artifact@v4
         if: ${{ !cancelled() && steps.release.outcome == 'success' }}
         with:
@@ -108,10 +110,47 @@ jobs:
           path: benchmark-bin/
           if-no-files-found: error
           retention-days: 7
-      - run: cargo test --release --test capture_performance --locked -- --ignored --nocapture
-        if: ${{ !cancelled() && steps.release.outcome == 'success' }}
+  capture-gate:
+    # Run once per OS on fresh hosts, without compiler/browser disk activity.
+    # These are strict gates: no voting, retries, or changed OS thresholds.
+    needs: test
+    if: ${{ !cancelled() }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: paradox-Linux-X64
+          - os: macos-15
+            artifact: paradox-macOS-ARM64
+          - os: windows-latest
+            artifact: paradox-Windows-X64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: benchmark-bin
+      - name: Restore executable permissions
+        if: runner.os != 'Windows'
+        run: chmod +x benchmark-bin/paradox benchmark-bin/pending-test benchmark-bin/capture-test
+      - name: Gate release capture and contended handoff on the exact built binary
+        shell: bash
         env:
           PARADOX_PROFILE_CAPTURE: '1'
+        run: |
+          suffix=''
+          if [ "$RUNNER_OS" = Windows ]; then suffix='.exe'; fi
+          python scripts/capture_ci.py "benchmark-bin/pending-test$suffix" "benchmark-bin/capture-test$suffix" "benchmark-bin/paradox$suffix" capture-report
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: capture-${{ runner.os }}-${{ runner.arch }}
+          path: capture-report/
+          if-no-files-found: error
+          retention-days: 7
   passthrough-1:
     needs: test
     if: ${{ !cancelled() }}

@@ -13,6 +13,10 @@ limits: macOS 100 ms (78.886042 ms observed) and Windows 200 ms (135.0832 ms
 observed), with stored-baseline protection. Initial observations were debug
 tests; CI gates release timing and keeps all debug functional checks. The 15 ms lock timeout
 and durable writes remain unchanged.
+Capture and contention timing run once per OS on fresh hosted runners using
+the exact precompiled release binaries, without preceding compiler or browser
+disk activity. These checks retain the existing limits and baseline ceilings;
+they do not use retries or majority voting.
 See the [M1 verification report](docs/milestones/M1.md) for measured results.
 The [M2 verification report](docs/milestones/M2.md) records capture tests and timing gates.
 The [M3 verification report](docs/milestones/M3.md) records history, rewind and tracking validation.
