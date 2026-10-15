@@ -8,6 +8,9 @@ The [core brief amendments](docs/amendments-core.md) are being applied and teste
 complete M7 acceptance, then stop. M8, M9 and S (future cloud-system exploration)
 remain pending for later. No cloud research starts before M7 is accepted.
 The [M6 work report](docs/milestones/M6.md) records its current validation state.
+The [contention benchmark](benchmarks/pending.csv) records the approved macOS-only
+100 ms burst handoff limit (78.886042 ms observed), with baseline-regression
+protection. The 15 ms lock timeout and durable writes remain unchanged.
 See the [M1 verification report](docs/milestones/M1.md) for measured results.
 The [M2 verification report](docs/milestones/M2.md) records capture tests and timing gates.
 The [M3 verification report](docs/milestones/M3.md) records history, rewind and tracking validation.

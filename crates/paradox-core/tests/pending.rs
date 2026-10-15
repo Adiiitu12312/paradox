@@ -69,8 +69,20 @@ fn twenty_contended_savers_queue_paths_and_holder_drains_exact_final_content() {
         "lock wait exceeds save budget"
     );
     assert!(
-        totals[10] < Duration::from_millis(50),
-        "contended saves exceed their 50 ms median exit budget"
+        {
+            let row = include_str!("../../../benchmarks/pending.csv")
+                .lines()
+                .find(|line| line.starts_with(&format!("{},", std::env::consts::OS)));
+            let ceiling = row.map_or(50.0, |row| {
+                let fields: Vec<_> = row.split(',').collect();
+                let baseline: f64 = fields[1].parse().unwrap();
+                let limit: f64 = fields[2].parse().unwrap();
+                limit.min(baseline * 1.2 + 1.0)
+            });
+            println!("pending median regression ceiling: {ceiling} ms");
+            totals[10] < Duration::from_secs_f64(ceiling / 1000.0)
+        },
+        "contended saves exceed their stored OS median exit budget"
     );
     fs::write(
         root.join("a.ts"),

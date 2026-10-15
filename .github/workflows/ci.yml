@@ -41,6 +41,8 @@ jobs:
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
         if: always()
       - run: cargo test --workspace --locked --features paradox-cli/fault-injection
+      - name: Record contended save handoff timing and enforce stored OS baseline
+        run: cargo test --locked -p paradox-core --test pending -- --nocapture
       - run: cargo build --release --locked -p paradox-cli
         id: release
       - name: Gate native graph first-page latency on 100,000 commits

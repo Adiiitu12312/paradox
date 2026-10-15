@@ -27,6 +27,15 @@ coalesces markers before releasing. A post-release check and a publisher's
 nonblocking takeover close the empty-queue/release race. No daemon or worker
 process is started. Pending markers contain paths, not file contents.
 
+The initial macOS 20-saver burst measured a 17.047125 ms median lock wait and
+78.886042 ms durable-marker exit (run 38770132710, bbf0076). This exceeded the
+original 50 ms contention budget by 57.77%. The owner authorized choosing a
+practical exception: macOS has a 100 ms limit, with the stored baseline enforcing
+the tighter 95.6632504 ms regression ceiling. Linux/Windows keep 50 ms. The lock
+timeout remains 15 ms and atomic writes, fsync and SQLite durability are unchanged.
+The exception concerns simultaneous contended saves, not the normal single-save
+or scan gates. See `benchmarks/pending.csv`; failed measurements remain recorded.
+
 Pass-through reads no Paradox config unless `<store>/safety_enabled` exists.
 After editing `safety_loop_commands`, run `paradox init` or another owned
 store command to synchronize that flag. Empty configuration disables the flag;

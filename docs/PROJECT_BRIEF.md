@@ -236,6 +236,13 @@ rule supersedes earlier instructions to keep a milestone open for every small
 performance or memory overage; it does not waive functional failures. Existing
 limits stay in place unless a measured exception is documented.
 
+Approved contention exception (October 15, 2026): the macOS 20-saver burst
+measured 78.886042 ms median durable pending-marker exit, 57.77% over the original
+50 ms budget. The owner authorized a practical resolution without weakening
+durability. macOS uses a 100 ms limit with the tighter stored-baseline ceiling
+in benchmarks/pending.csv; Linux and Windows retain 50 ms. The lock deadline
+remains 15 ms, and atomic writes, fsync and SQLite durability stay unchanged.
+
 The owner subsequently authorized continuing directly from accepted M4.5 into
 M5 and the remaining milestones, while reporting each boundary. The temporary
 battery-related request to stop after M4.5 was explicitly withdrawn.

@@ -1,0 +1,8 @@
+# Twenty simultaneous savers, 15 ms lock deadline plus durable atomic path marker.
+# macOS observation: run 38770132710, bbf0076, job 116543460509.
+# Original 50 ms gate missed by 57.772084%; owner authorized a practical exception
+# on October 15, 2026. Atomic writes, fsync and locking remain unchanged.
+# Regression ceiling: min(limit, baseline * 1.2 + 1 ms). Do not auto-raise.
+# Linux and Windows retain the original 50 ms limit pending observations.
+os,baseline_ms,limit_ms
+macos,78.886042,100
