@@ -266,9 +266,17 @@ impl LoopStore {
                 mode: None,
             });
         }
-        let output =
+        let mut lookup = path.to_owned();
+        let mut output =
             self.repo
                 .git(&["--literal-pathspecs", "ls-tree", "-z", commit, "--", path])?;
+        if output.stdout.is_empty() {
+            let previous = self.repo.previous_path(path, commit)?;
+            if previous != path {
+                lookup = previous;
+                output = self.repo.git(&["--literal-pathspecs", "ls-tree", "-z", commit, "--", &lookup])?;
+            }
+        }
         let entry = output
             .stdout
             .split(|byte| *byte == 0)
@@ -289,7 +297,7 @@ impl LoopStore {
             .position(|byte| *byte == b'\t')
             .context("invalid Git tree record")?;
         ensure!(
-            &entry[tab + 1..] == path.as_bytes(),
+            &entry[tab + 1..] == lookup.as_bytes(),
             "Git returned a different file"
         );
         let fields: Vec<_> = std::str::from_utf8(&entry[..tab])?.split(' ').collect();

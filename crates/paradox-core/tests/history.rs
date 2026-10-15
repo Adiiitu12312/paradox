@@ -446,6 +446,29 @@ fn git_reported_rename_keeps_history_and_stale_message_rules() {
         b"//> rename label\nfirst\n"
     );
     assert!(!root.path().join("a.ts").exists());
+    let head = store.head_version("renamed.ts").unwrap();
+    assert!(!head.deleted);
+    assert_eq!(store.version_bytes("renamed.ts", &head).unwrap(), b"base a\n");
+    store.rewind_file(Path::new("renamed.ts"), "HEAD").unwrap();
+    assert_eq!(fs::read(root.path().join("renamed.ts")).unwrap(), b"base a\n");
+    assert!(!root.path().join("a.ts").exists());
+}
+
+#[test]
+fn committed_rename_uses_gits_file_history_for_older_time_baselines() {
+    let root = fixture();
+    git(root.path(), &["mv", "a.ts", "renamed.ts"]);
+    let date = format!("@{} +0000", (now().unwrap() - 300_000) / 1000);
+    let output = Command::new("git").args(["commit", "-qm", "rename"]).current_dir(root.path())
+        .env("GIT_CONFIG_NOSYSTEM", "1").env("GIT_CONFIG_GLOBAL", root.path().join("no-global"))
+        .env("GIT_AUTHOR_NAME", "Paradox Test").env("GIT_AUTHOR_EMAIL", "test@example.invalid")
+        .env("GIT_COMMITTER_NAME", "Paradox Test").env("GIT_COMMITTER_EMAIL", "test@example.invalid")
+        .env("GIT_AUTHOR_DATE", &date).env("GIT_COMMITTER_DATE", &date).output().unwrap();
+    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    let store = open(root.path());
+    let old = store.resolve("renamed.ts", "1h").unwrap();
+    assert!(!old.deleted);
+    assert_eq!(store.version_bytes("renamed.ts", &old).unwrap(), b"base a\n");
 }
 
 #[test]

@@ -21,6 +21,23 @@ pub struct Changes {
     pub renames: Vec<(String, String)>,
 }
 
+fn rename_records(output: &[u8]) -> Result<Vec<(String, String)>> {
+    let mut entries = output.split(|byte| *byte == 0);
+    let mut renames = Vec::new();
+    while let Some(status) = entries.next() {
+        let status = status.trim_ascii();
+        if status.is_empty() { continue; }
+        let from = entries.next().context("invalid Git name-status record")?;
+        if matches!(status.first(), Some(b'R' | b'C')) {
+            let to = entries.next().context("invalid Git rename record")?;
+            if status.first() == Some(&b'R') {
+                renames.push((std::str::from_utf8(from)?.into(), std::str::from_utf8(to)?.into()));
+            }
+        }
+    }
+    Ok(renames)
+}
+
 impl Repo {
     pub fn discover(globals: &[OsString]) -> Result<Self> {
         let mut args = globals.to_vec();
@@ -196,24 +213,22 @@ impl Repo {
             "--no-color",
             "--",
         ])?;
-        let mut entries = output.stdout.split(|byte| *byte == 0);
-        let mut renames = Vec::new();
-        while let Some(status) = entries.next() {
-            if status.is_empty() {
-                continue;
-            }
-            let from = entries.next().context("invalid Git name-status record")?;
-            if matches!(status.first(), Some(b'R' | b'C')) {
-                let to = entries.next().context("invalid Git rename record")?;
-                if status.first() == Some(&b'R') {
-                    renames.push((
-                        std::str::from_utf8(from)?.into(),
-                        std::str::from_utf8(to)?.into(),
-                    ));
-                }
+        rename_records(&output.stdout)
+    }
+
+    pub fn previous_path(&self, path: &str, commit: &str) -> Result<String> {
+        let mut path = path.to_owned();
+        for (old, new) in self.staged_renames()? {
+            if new == path { path = old; }
+        }
+        if commit != self.head {
+            let range = format!("{commit}..HEAD");
+            let output = self.git(&["--no-lazy-fetch", "--literal-pathspecs", "log", "--follow", "--format=", "--name-status", "-z", "--find-renames", "--no-ext-diff", "--no-textconv", "--no-color", &range, "--", &path])?;
+            for (old, new) in rename_records(&output.stdout)? {
+                if new == path { path = old; }
             }
         }
-        Ok(renames)
+        Ok(path)
     }
 
     pub fn changes(&self) -> Result<Changes> {

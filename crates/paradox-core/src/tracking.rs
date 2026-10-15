@@ -134,7 +134,7 @@ impl LoopStore {
         let selected = inputs
             .iter()
             .map(|path| {
-                if path == &self.repo.root || (path == &PathBuf::from(".") && self.repo.prefix.as_os_str().is_empty()) {
+                if path == &self.repo.root || (path.as_os_str() == "." && self.repo.prefix.as_os_str().is_empty()) {
                     Ok(".".to_string())
                 } else { self.repo.relative(path) }
             })
