@@ -203,7 +203,10 @@ impl TrackedPaths {
         let mut arena = String::with_capacity(capacity);
         let mut starts = Vec::with_capacity(paths.len());
         for path in paths {
-            ensure!(!path.is_empty() && !path.contains('\0'), "invalid tracked path");
+            ensure!(
+                !path.is_empty() && !path.contains('\0'),
+                "invalid tracked path"
+            );
             starts.push(arena.len());
             arena.push_str(&path);
             arena.push('\0');
@@ -220,7 +223,12 @@ impl TrackedPaths {
 
     fn path_at(&self, index: usize) -> &str {
         let start = self.starts[index];
-        let end = self.starts.get(index + 1).copied().unwrap_or(self.arena.len()) - 1;
+        let end = self
+            .starts
+            .get(index + 1)
+            .copied()
+            .unwrap_or(self.arena.len())
+            - 1;
         &self.arena[start..end]
     }
 
@@ -757,8 +765,17 @@ mod tracked_paths_tests {
     #[test]
     fn exact_membership_and_sorted_iteration_preserve_path_bytes() {
         let names = [
-            "a", "a/b", "a-b", "ab", "a.ts", "space name.ts", "tab\tname.ts",
-            "line\nname.ts", "return\rname.ts", "literal\\name.ts", "日本語/é.ts",
+            "a",
+            "a/b",
+            "a-b",
+            "ab",
+            "a.ts",
+            "space name.ts",
+            "tab\tname.ts",
+            "line\nname.ts",
+            "return\rname.ts",
+            "literal\\name.ts",
+            "日本語/é.ts",
         ];
         let packed = paths(&names);
         let reference: HashSet<_> = names.into_iter().collect();
@@ -767,7 +784,15 @@ mod tracked_paths_tests {
         assert_eq!(packed.len(), reference.len());
         assert_eq!(packed.iter().collect::<Vec<_>>(), ordered);
         for name in names.into_iter().chain([
-            "", "A", "a/", "a/b/", "a.t", "abc", "é.ts", "tab name.ts", "a\0b",
+            "",
+            "A",
+            "a/",
+            "a/b/",
+            "a.t",
+            "abc",
+            "é.ts",
+            "tab name.ts",
+            "a\0b",
         ]) {
             assert_eq!(packed.contains(name), reference.contains(name), "{name:?}");
         }
