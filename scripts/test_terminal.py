@@ -15,10 +15,10 @@ import time
 
 
 def terminal(executable, arguments, cwd, env, interrupt=False,
-             initial_input=b"", interrupt_ready=b"SIGNAL_READY"):
+             initial_input=b"", interrupt_ready=b"SIGNAL_READY", observe_git_child=False):
     if os.name == "nt":
         return windows_terminal(executable, arguments, cwd, env, interrupt,
-                                initial_input, interrupt_ready)
+                                initial_input, interrupt_ready, observe_git_child)
     import pty
 
     pid, fd = pty.fork()
@@ -61,8 +61,75 @@ def terminal(executable, arguments, cwd, env, interrupt=False,
         os.close(fd)
 
 
+class WindowsChildExit:
+    """Retain the wrapper's actual Git child HANDLE before delivering Ctrl+C."""
+
+    def __init__(self, parent_pid):
+        import ctypes
+        from ctypes import wintypes
+
+        class ProcessEntry(ctypes.Structure):
+            _fields_ = [("dwSize", wintypes.DWORD), ("cntUsage", wintypes.DWORD),
+                        ("th32ProcessID", wintypes.DWORD), ("th32DefaultHeapID", ctypes.c_size_t),
+                        ("th32ModuleID", wintypes.DWORD), ("cntThreads", wintypes.DWORD),
+                        ("th32ParentProcessID", wintypes.DWORD), ("pcPriClassBase", wintypes.LONG),
+                        ("dwFlags", wintypes.DWORD), ("szExeFile", wintypes.WCHAR * 260)]
+
+        self.api = ctypes.WinDLL("kernel32", use_last_error=True)
+        self.api.CreateToolhelp32Snapshot.argtypes = [wintypes.DWORD, wintypes.DWORD]
+        self.api.CreateToolhelp32Snapshot.restype = wintypes.HANDLE
+        for name in ("Process32FirstW", "Process32NextW"):
+            function = getattr(self.api, name)
+            function.argtypes = [wintypes.HANDLE, ctypes.POINTER(ProcessEntry)]
+            function.restype = wintypes.BOOL
+        self.api.OpenProcess.argtypes = [wintypes.DWORD, wintypes.BOOL, wintypes.DWORD]
+        self.api.OpenProcess.restype = wintypes.HANDLE
+        self.api.CloseHandle.argtypes = [wintypes.HANDLE]
+        self.api.CloseHandle.restype = wintypes.BOOL
+        self.api.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+        self.api.WaitForSingleObject.restype = wintypes.DWORD
+        self.api.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+        self.api.GetExitCodeProcess.restype = wintypes.BOOL
+        snapshot = self.api.CreateToolhelp32Snapshot(0x2, 0)  # TH32CS_SNAPPROCESS
+        if snapshot == ctypes.c_void_p(-1).value:
+            raise ctypes.WinError(ctypes.get_last_error())
+        children = []
+        try:
+            entry = ProcessEntry()
+            entry.dwSize = ctypes.sizeof(entry)
+            success = self.api.Process32FirstW(snapshot, ctypes.byref(entry))
+            while success:
+                if entry.th32ParentProcessID == parent_pid and entry.szExeFile.lower() == "git.exe":
+                    children.append(entry.th32ProcessID)
+                success = self.api.Process32NextW(snapshot, ctypes.byref(entry))
+            assert ctypes.get_last_error() == 18, "process enumeration failed"  # ERROR_NO_MORE_FILES
+        finally:
+            self.api.CloseHandle(snapshot)
+        assert len(children) == 1, f"expected one immediate Git child of {parent_pid}: {children}"
+        self.pid = children[0]
+        # Observe the immediate child whose status Command::status returns,
+        # including any Git launcher semantics, rather than guessing from a
+        # different direct run or from a pre-exit Trace2 record.
+        self.handle = self.api.OpenProcess(0x100000 | 0x1000, False, self.pid)
+        if not self.handle:
+            raise ctypes.WinError(ctypes.get_last_error())
+
+    def exit_code(self):
+        import ctypes
+        from ctypes import wintypes
+
+        assert self.api.WaitForSingleObject(self.handle, 5000) == 0, "Git child did not terminate"
+        code = wintypes.DWORD()
+        if not self.api.GetExitCodeProcess(self.handle, ctypes.byref(code)):
+            raise ctypes.WinError(ctypes.get_last_error())
+        return code.value
+
+    def close(self):
+        self.api.CloseHandle(self.handle)
+
+
 def windows_terminal(executable, arguments, cwd, env, interrupt,
-                     initial_input, interrupt_ready):
+                     initial_input, interrupt_ready, observe_git_child):
     # This helper is installed only on GitHub's hosted Windows runner.
     from winpty import PtyProcess
 
@@ -70,6 +137,7 @@ def windows_terminal(executable, arguments, cwd, env, interrupt,
     output = bytearray()
     sent_interrupt = False
     interrupted_at = None
+    observed_child = None
     deadline = time.monotonic() + 15
     try:
         if initial_input:
@@ -83,6 +151,8 @@ def windows_terminal(executable, arguments, cwd, env, interrupt,
                 except EOFError:
                     break
                 if interrupt and interrupt_ready in output and not sent_interrupt:
+                    if observe_git_child:
+                        observed_child = WindowsChildExit(process.pid)
                     process.sendintr()
                     sent_interrupt = True
                     interrupted_at = time.monotonic()
@@ -92,8 +162,18 @@ def windows_terminal(executable, arguments, cwd, env, interrupt,
         if interrupt:
             assert sent_interrupt, output
             assert time.monotonic() - interrupted_at < 5, "Ctrl+C did not end the command promptly"
+        if observe_git_child:
+            assert observed_child is not None, "Git child was not observed before interruption"
+            child_code = observed_child.exit_code()
+            assert child_code < 0x80000000 or child_code == 0xc000013a, child_code
+            assert process.exitstatus is not None and (process.exitstatus & 0xffffffff) == child_code, (
+                "wrapper did not preserve its actual Git child's OS exit status",
+                observed_child.pid, child_code, process.exitstatus, bytes(output))
+            print(f"PASS: wrapper OS status equals observed Git child {observed_child.pid}: {child_code}")
         return process.exitstatus, bytes(output)
     finally:
+        if observed_child is not None:
+            observed_child.close()
         process.close(force=True)
 
 
@@ -193,6 +273,7 @@ def main():
         results = []
         for name, executable in [("direct", git), ("wrapped", binary)]:
             result = terminal(executable, command, root, env, interrupt=True,
+                              observe_git_child=os.name == "nt" and name == "wrapped",
                               **signal_options)
             if os.name == "nt":
                 # Native Windows Git can treat the cancelled console read as
@@ -205,7 +286,8 @@ def main():
                 # even if Git wrote a successful Trace2 event before crashing.
                 assert code < 0x80000000 or code == 0xc000013a, (name, result)
             results.append(result)
-        assert results[0][0] == results[1][0], results
+        if os.name != "nt":
+            assert results[0][0] == results[1][0], results
         print(f"PASS: prompt Ctrl+C exit and Git status forwarding ({results[0][0]}, {results[1][0]})")
 
         for text in ["//> first loop\nfirst loop body\n", "//> second loop\nsecond loop body\n"]:

@@ -102,10 +102,15 @@ def aggregate(directory, expected_source=None):
             value = report[key]
             require(len(value) == 64 and all(c in "0123456789abcdef" for c in value),
                     f"invalid executable hash for {identity}")
+        # Patch image rollouts and Git updates are recorded per assessment.
+        # Each paired measurement uses that host's native Git; only the OS
+        # family/architecture and exact candidate/harness must stay fixed.
         provenance = tuple(report[key] for key in (
             "source", "binary_sha256", "test_sha256", "runner_os", "runner_arch",
-            "image_os", "image_version", "git_version", "workflow_run", "workflow_attempt"))
+            "image_os", "workflow_run", "workflow_attempt"))
         require(all(provenance), f"missing host provenance for {identity}")
+        require(report["image_version"] and report["git_version"],
+                f"missing image/Git observation for {identity}")
         if operating_system in references:
             require(provenance == references[operating_system],
                     f"source/binary/host-image/tool provenance differs for {identity}")

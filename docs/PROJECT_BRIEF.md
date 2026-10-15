@@ -211,6 +211,10 @@ M9. Hardening: cross-platform CI green, README (install, quickstart, command ref
 
 ## Accepted amendments (October 15, 2026)
 
+The owner subsequently authorized continuing directly from accepted M4.5 into
+M5 and the remaining milestones, while reporting each boundary. The temporary
+battery-related request to stop after M4.5 was explicitly withdrawn.
+
 M2's accepted Windows-only capture budgets are under 100 ms per single-file loop
 and under 1000 ms per warm 50,000-file scan. Linux/macOS retain 50/500 ms. Store
 per-OS observed baselines and enforce regressions with the documented scheduling

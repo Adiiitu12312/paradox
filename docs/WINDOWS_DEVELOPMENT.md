@@ -38,6 +38,12 @@ and the watcher process exited. The temporary repository was removed afterward.
 Local development execution is therefore unblocked; no Node change was needed.
 That run's macOS performance failure remains a separate acceptance issue.
 
+The newer `c79377a` Windows artifact from run `38727716484` repeated this local
+smoke check at 11:37 UTC: Git parity, one native watcher save with its message,
+status and stop all passed, with no watcher process afterward. Node remained
+v26.4.0. The hosted macOS timing and Windows terminal-fixture failures remain
+recorded separately in the M4.5 report.
+
 UI work will use the existing local Node/npm and browser when its milestone
 arrives. Minimal local Rust tools are permitted only if that work needs them;
 the large C++/Windows SDK toolchain remains excluded. These development builds

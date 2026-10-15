@@ -70,7 +70,7 @@ class AggregationTests(unittest.TestCase):
 
     def test_changed_provenance_and_thresholds_fail(self):
         for field, value in (("source", "another-source"), ("binary_sha256", "c" * 64),
-                             ("test_sha256", "d" * 64), ("image_version", "other-image")):
+                             ("test_sha256", "d" * 64), ("image_os", "other-image")):
             reports = self.matrix()
             reports[1][field] = value
             with self.subTest(field=field), self.assertRaises(ValueError):
@@ -78,6 +78,15 @@ class AggregationTests(unittest.TestCase):
         reports = self.matrix()
         reports[0]["measurements"][0]["ceiling_ns"] += 1
         with self.assertRaisesRegex(ValueError, "gate changed"):
+            self.assess(reports)
+
+    def test_patch_image_and_native_git_versions_remain_per_host_observations(self):
+        reports = self.matrix()
+        reports[1]["image_version"] = "next-patch-image"
+        reports[1]["git_version"] = "git-next"
+        self.assess(reports)
+        reports[1]["git_version"] = ""
+        with self.assertRaisesRegex(ValueError, "missing image/Git"):
             self.assess(reports)
 
     def test_raw_pairs_and_computed_medians_are_checked(self):
