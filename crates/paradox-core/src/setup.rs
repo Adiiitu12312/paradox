@@ -391,9 +391,12 @@ pub fn editor_config(editor: &str) -> Result<&'static str> {
         "jetbrains" => Ok(
             "File Watcher: Program=paradox; Arguments=loop \"$FilePath$\"; Working directory=$ProjectFileDir$; Trigger on external changes=true; Output paths to refresh=(empty).",
         ),
-        "sublime" => Ok(
-            "Use a run-on-save package command with argv [\"paradox\", \"loop\", \"$file\"] and working_dir \"$project_path\". Run asynchronously.",
-        ),
+        "sublime" => Ok(r#"Install the existing Hooks package (https://github.com/twolfson/sublime-hooks).
+Save this as Packages/User/Paradox.sublime-build, then select Tools > Build System > Paradox:
+{"cmd":["paradox","loop","$file"],"working_dir":"$file_path"}
+Merge this into Preferences.sublime-settings (or the corresponding project hook):
+{"on_post_save_user":[{"command":"build","scope":"window"}]}
+Sublime's build command launches the capture process asynchronously."#),
         _ => anyhow::bail!("editor must be neovim, jetbrains or sublime"),
     }
 }

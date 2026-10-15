@@ -186,14 +186,18 @@ pub fn strip_staged(repo: &Repo) -> Result<usize> {
         crate::fault("before_strip_index_replace");
         // update-index replaced the pathname; the original tempfile handle
         // still refers to its previous inode. Sync the updated index itself.
-        let updated = OpenOptions::new().read(true).write(true).open(temporary.path())?;
+        let updated = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(temporary.path())?;
         if let Ok(meta) = fs::metadata(&path) {
             updated.set_permissions(meta.permissions())?;
         }
         updated.sync_all()?;
         drop(updated);
         // tempfile's persist uses atomic replacement on Windows as well as Unix.
-        temporary.into_temp_path()
+        temporary
+            .into_temp_path()
             .persist(&path)
             .map_err(|e| e.error)?;
         #[cfg(unix)]
