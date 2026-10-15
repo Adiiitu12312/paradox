@@ -95,8 +95,24 @@ struct Hook {
 fn manifest_path(repo: &Repo) -> PathBuf {
     repo.store.join(format!("setup-{}.json", repo.worktree))
 }
-fn save_manifest(repo: &Repo, manifest: &Manifest) -> Result<()> {
-    atomic_write(&manifest_path(repo), &serde_json::to_vec_pretty(manifest)?)
+fn save_manifest(store: &LoopStore, manifest: &Manifest) -> Result<()> {
+    write_manifest(store, &manifest_path(&store.repo), manifest)
+}
+fn write_manifest(store: &LoopStore, path: &Path, manifest: &Manifest) -> Result<()> {
+    reject_link(path)?;
+    if manifest.edits.is_empty() && manifest.hooks.is_empty() {
+        if path.exists() {
+            fs::remove_file(path)?;
+            #[cfg(unix)] fs::File::open(&store.repo.store)?.sync_all()?;
+        }
+        return Ok(());
+    }
+    let bytes = serde_json::to_vec_pretty(manifest)?;
+    let old = fs::metadata(path).map_or(0, |m| m.len().max(4096));
+    let new = (bytes.len() as u64).max(4096);
+    ensure!(new <= old || store.bytes()?.saturating_sub(old).saturating_add(new) <= store.config.store_cap_bytes,
+        "store cap leaves no room for setup metadata; unpin and run loop --gc, or raise the cap");
+    atomic_write(path, &bytes)
 }
 fn load_manifest(repo: &Repo) -> Result<Manifest> {
     let path = manifest_path(repo);
@@ -230,10 +246,7 @@ pub fn install(repo: Repo, exe: &Path) -> Result<()> {
             if !record.owners.contains(&repo.worktree) {
                 record.owners.push(repo.worktree.clone());
             }
-            atomic_write(
-                &hook_manifest_path,
-                &serde_json::to_vec_pretty(&hook_manifest)?,
-            )?;
+            write_manifest(&store, &hook_manifest_path, &hook_manifest)?;
             continue;
         }
         let existing = fs::symlink_metadata(&path).ok();
@@ -263,10 +276,7 @@ pub fn install(repo: Repo, exe: &Path) -> Result<()> {
             script: script.clone(),
             owners: vec![repo.worktree.clone()],
         });
-        atomic_write(
-            &hook_manifest_path,
-            &serde_json::to_vec_pretty(&hook_manifest)?,
-        )?;
+        write_manifest(&store, &hook_manifest_path, &hook_manifest)?;
         if let Some(backup) = backup {
             fs::rename(&path, backup)?;
         }
@@ -322,7 +332,7 @@ pub fn install(repo: Repo, exe: &Path) -> Result<()> {
             continue;
         }
         manifest.edits.push(edit);
-        save_manifest(repo, &manifest)?;
+        save_manifest(&store, &manifest)?;
         edit_config(repo, manifest.edits.last().context("missing edit")?, false)?;
     }
     Ok(())
@@ -365,11 +375,8 @@ pub fn uninstall(repo: Repo) -> Result<()> {
         }
     }
     hook_manifest.hooks = retained;
-    atomic_write(
-        &hook_manifest_path,
-        &serde_json::to_vec_pretty(&hook_manifest)?,
-    )?;
-    save_manifest(repo, &manifest)?;
+    write_manifest(&store, &hook_manifest_path, &hook_manifest)?;
+    save_manifest(&store, &manifest)?;
     Ok(())
 }
 
@@ -391,12 +398,14 @@ pub fn editor_config(editor: &str) -> Result<&'static str> {
         "jetbrains" => Ok(
             "File Watcher: Program=paradox; Arguments=loop \"$FilePath$\"; Working directory=$ProjectFileDir$; Trigger on external changes=true; Output paths to refresh=(empty).",
         ),
-        "sublime" => Ok(r#"Install the existing Hooks package (https://github.com/twolfson/sublime-hooks).
+        "sublime" => Ok(
+            r#"Install the existing Hooks package (https://github.com/twolfson/sublime-hooks).
 Save this as Packages/User/Paradox.sublime-build, then select Tools > Build System > Paradox:
 {"cmd":["paradox","loop","$file"],"working_dir":"$file_path"}
 Merge this into Preferences.sublime-settings (or the corresponding project hook):
 {"on_post_save_user":[{"command":"build","scope":"window"}]}
-Sublime's build command launches the capture process asynchronously."#),
+Sublime's build command launches the capture process asynchronously."#,
+        ),
         _ => anyhow::bail!("editor must be neovim, jetbrains or sublime"),
     }
 }
