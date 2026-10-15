@@ -3,11 +3,13 @@
 A Rust Git wrapper that will add local per-file loops and a browser Git UI.
 Git remains the source of truth; every Git operation uses the installed Git binary.
 
-**Development status: M1 and M2 complete; M3 is in progress.**
+**Development status: M1–M3 complete; M4 is next.**
 See the [M1 verification report](docs/milestones/M1.md) for measured results.
 The [M2 verification report](docs/milestones/M2.md) records capture tests and timing gates.
-This build implements the dispatcher and explicit loop capture. M2 passed
-all-platform performance acceptance. Automatic capture, auto-staging commits and
+The [M3 verification report](docs/milestones/M3.md) records history, rewind and tracking validation.
+This build implements the dispatcher, explicit loop capture, per-file history,
+compare, undoable rewind, pins and explicit tracking. All three operating systems
+passed functional and performance acceptance. Automatic capture, auto-staging commits and
 the UI arrive later. Do not alias `git` to this development build.
 
 ## Build on GitHub (preferred for this project)
@@ -105,7 +107,7 @@ preserves its original operating-system arguments.
 Commit-time marker stripping and automatic editor/AI hook setup arrive in M4;
 this development build does not install them. `watch` arrives in M4.5.
 
-## History and rewind (M3, under verification)
+## History and rewind (M3)
 
 ```text
 paradox loops src/file.ts
