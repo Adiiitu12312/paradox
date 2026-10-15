@@ -3,9 +3,12 @@ use std::{
     fs,
     path::Path,
     process::Command,
-    sync::{Arc, Barrier},
+    sync::{Arc, Barrier, Mutex},
     time::{Duration, Instant},
 };
+// Keep the timed 20-saver burst independent of the separate WAL stress test.
+// Each test still exercises its own concurrent publishers/openers.
+static PENDING_TEST: Mutex<()> = Mutex::new(());
 fn git(root: &Path, args: &[&str]) {
     let output = Command::new("git")
         .args(args)
@@ -25,6 +28,7 @@ fn repo(root: &Path) -> Repo {
 }
 #[test]
 fn twenty_contended_savers_queue_paths_and_holder_drains_exact_final_content() {
+    let _serial = PENDING_TEST.lock().unwrap();
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path();
     git(root, &["init", "-q"]);
@@ -113,6 +117,7 @@ fn twenty_contended_savers_queue_paths_and_holder_drains_exact_final_content() {
 }
 #[test]
 fn pending_handoff_from_another_worktree_uses_that_worktrees_current_file() {
+    let _serial = PENDING_TEST.lock().unwrap();
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path();
     git(root, &["init", "-q"]);
@@ -144,4 +149,34 @@ fn pending_handoff_from_another_worktree_uses_that_worktrees_current_file() {
     drop(store);
     let primary = LoopStore::open(repo(root)).unwrap();
     assert!(primary.loops("a.ts").unwrap().is_empty());
+}
+
+#[test]
+fn successor_store_open_waits_for_sqlite_wal_cleanup() {
+    let _serial = PENDING_TEST.lock().unwrap();
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path();
+    git(root, &["init", "-q"]);
+    let repo = repo(root);
+    drop(LoopStore::open(repo.clone()).unwrap());
+    let barrier = Arc::new(Barrier::new(4));
+    let threads: Vec<_> = (0..4)
+        .map(|_| {
+            let repo = repo.clone();
+            let barrier = barrier.clone();
+            std::thread::spawn(move || {
+                barrier.wait();
+                for _ in 0..40 {
+                    let store = LoopStore::open(repo.clone()).unwrap();
+                    store.index.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('handoff_test','ok')", []).unwrap();
+                    drop(store);
+                }
+            })
+        })
+        .collect();
+    for thread in threads {
+        thread.join().unwrap();
+    }
+    let store = LoopStore::open(repo).unwrap();
+    assert_eq!(store.index.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0)).unwrap(), "ok");
 }

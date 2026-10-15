@@ -348,7 +348,14 @@ pub fn execute(
     cancel: Cancellation,
     on_event: impl FnMut(ProgressEvent) + Send,
 ) -> Result<Value> {
-    execute_with_executable(repo, action, plan, cancel, &std::env::current_exe()?, on_event)
+    execute_with_executable(
+        repo,
+        action,
+        plan,
+        cancel,
+        &std::env::current_exe()?,
+        on_event,
+    )
 }
 
 /// Embedders must provide the Paradox CLI used by mandatory commit hooks.
@@ -361,6 +368,11 @@ pub fn execute_with_executable(
     mut on_event: impl FnMut(ProgressEvent) + Send,
 ) -> Result<Value> {
     let repo = repo.refreshed_head()?;
+    let rebase_continue = matches!(action, Action::Continue { operation: Operation::Rebase });
+    if rebase_continue {
+        let markers = crate::commit::staged_marker_paths(&repo)?;
+        ensure!(markers.is_empty(), "Cannot continue rebase with staged AI message markers in {}. Git checks working/index equality before committing and can select its tree before commit hooks. Remove the message line from each resolved working file, stage it again, then Continue. This preflight changed neither files nor the index.", markers.join(", "));
+    }
     let destructive = safety::destructive(&action);
     if destructive {
         let plan = plan.context("This action requires preview and explicit confirmation")?;
@@ -391,8 +403,12 @@ pub fn execute_with_executable(
     let hooks = if matches!(action, Action::Continue { .. }) {
         // Agent-rule markers remain in the working file. Only the resolved
         // index is sanitized before Git resumes its native sequencer/commit.
-        crate::commit::strip_staged(&repo)?;
-        Some(crate::commit::mandatory_hooks(&repo, executable, false)?)
+        if rebase_continue {
+            Some(crate::commit::mandatory_rebase_hooks(&repo, executable)?)
+        } else {
+            crate::commit::strip_staged(&repo)?;
+            Some(crate::commit::mandatory_hooks(&repo, executable, false)?)
+        }
     } else {
         None
     };

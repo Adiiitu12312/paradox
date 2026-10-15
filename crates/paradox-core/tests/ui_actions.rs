@@ -69,7 +69,10 @@ impl Fixture {
         // this crate's real stripper; CLI integration tests cover real hooks.
         let hooks = tempfile::tempdir().unwrap();
         let adapter = hooks.path().join("paradox-test-hook");
-        let executable = std::env::current_exe().unwrap().to_string_lossy().replace('\\', "/");
+        let executable = std::env::current_exe()
+            .unwrap()
+            .to_string_lossy()
+            .replace('\\', "/");
         fs::write(&adapter, format!("#!/bin/sh\n[ \"$3\" = post-commit ] && exit 0\nexport PARADOX_CORE_HOOK_TEST=1\nexec {} --ignored --exact mandatory_hook_test_entry --nocapture\n", paradox_core::setup::shell_quote(&executable))).unwrap();
         paradox_core::setup::executable(&adapter).unwrap();
         ui_actions::execute_with_executable(

@@ -155,6 +155,15 @@ pub(crate) fn finish(store: &mut LoopStore) {
     let result = (|| -> Result<()> {
         loop {
             while drain(store)? {}
+            // SQLite may delete its WAL/SHM files while its last connection
+            // closes. Finish that work while still owning the store lock;
+            // otherwise a Windows successor can see pending-delete files and
+            // fail to open the store with AccessDenied.
+            let index = std::mem::replace(
+                &mut store.index,
+                rusqlite::Connection::open_in_memory()?,
+            );
+            index.close().map_err(|(_, error)| error)?;
             fs2::FileExt::unlock(&store._lock)?;
             // A writer publishes before its final nonblocking lock attempt.
             // Check again AFTER unlocking to close the empty-queue/release race.
@@ -162,7 +171,17 @@ pub(crate) fn finish(store: &mut LoopStore) {
                 return Ok(());
             }
             match fs2::FileExt::try_lock_exclusive(&store._lock) {
-                Ok(()) => {}
+                Ok(()) => {
+                    for name in ["index.sqlite3", "index.sqlite3-wal", "index.sqlite3-shm"] {
+                        reject_link(&store.repo.store.join(name))?;
+                    }
+                    let index = rusqlite::Connection::open(store.repo.store.join("index.sqlite3"))?;
+                    index.busy_timeout(std::time::Duration::from_secs(5))?;
+                    index.execute_batch(
+                        "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;",
+                    )?;
+                    store.index = index;
+                }
                 Err(error)
                     if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() =>
                 {

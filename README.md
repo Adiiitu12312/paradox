@@ -331,6 +331,15 @@ that repository on exit. It enforces the same stored per-OS ceiling.
 
 ## Milestone order
 
+Rebase conflict continuation has one safety restriction: remove any line-1 AI
+message marker from each resolved working file and stage it again before using
+Continue. Paradox refuses a marked resolution without changing files or the
+index, because Git requires working/index equality and may select its commit
+tree before running commit hooks. A rebase `prepare-commit-msg` hook that changes
+the selected staged tree also stops continuation; that user hook may already
+have changed the index, so inspect `git diff --cached` before continuing in the
+terminal. Marker-free resolutions retain native hooks and rejection behavior.
+
 M1 workspace and dispatcher; M2 loop store and capture; M3 compare and rewind;
 M4 automatic capture, setup and commit conveniences; M4.5 manual watch sessions;
 M5 file picker;
