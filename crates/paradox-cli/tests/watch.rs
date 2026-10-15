@@ -101,7 +101,9 @@ impl<'a> Session<'a> {
         if let Some(idle) = idle {
             cmd.env("PARADOX_TEST_WATCH_IDLE_MS", idle);
         }
-        if let Some(limit) = limit { cmd.env("PARADOX_TEST_INOTIFY_LIMIT", limit); }
+        if let Some(limit) = limit {
+            cmd.env("PARADOX_TEST_INOTIFY_LIMIT", limit);
+        }
         let mut child = cmd.spawn().unwrap();
         let stdout = child.stdout.take().unwrap();
         let (tx, rx) = mpsc::channel();
@@ -118,7 +120,8 @@ impl<'a> Session<'a> {
             .unwrap_or_else(|e| {
                 panic!(
                     "watch startup failed: {e}, status={:?}, stderr={}",
-                    session.child.try_wait(), fs::read_to_string(root.join(".watch-stderr")).unwrap_or_default()
+                    session.child.try_wait(),
+                    fs::read_to_string(root.join(".watch-stderr")).unwrap_or_default()
                 );
             });
         assert!(line.starts_with("Paradox watching "), "{line}");
@@ -214,7 +217,11 @@ fn native_saves_rename_sed_debounce_and_exclusions() {
         .unwrap();
     }
     fs::write(root.join("src/untracked.ts"), "//> untracked\nx\n").unwrap();
-    fs::write(root.join("ignored/explicit.ts"), "//> ignored explicit path\nx\n").unwrap();
+    fs::write(
+        root.join("ignored/explicit.ts"),
+        "//> ignored explicit path\nx\n",
+    )
+    .unwrap();
     fs::write(root.join(".git/ignored-probe"), "metadata\n").unwrap();
     fs::write(root.join(".paradox/ignored-probe"), "metadata\n").unwrap();
     std::thread::sleep(Duration::from_secs(3));
@@ -353,10 +360,13 @@ fn parallel_capture_and_editor_burst_share_dedup_and_lock() {
         .collect();
     for _ in 0..8 {
         fs::write(
-            root.join("src/0.ts"),
+            root.join("src/.editor-concurrent-temp"),
             "//> concurrent edit\nsame final bytes\n",
         )
         .unwrap();
+        #[cfg(windows)]
+        fs::remove_file(root.join("src/0.ts")).unwrap();
+        fs::rename(root.join("src/.editor-concurrent-temp"), root.join("src/0.ts")).unwrap();
     }
     for mut child in children {
         assert!(child.wait().unwrap().success());
@@ -385,6 +395,46 @@ fn parallel_capture_and_editor_burst_share_dedup_and_lock() {
     );
     drop(store);
     watch.stop();
+}
+
+#[test]
+fn settled_file_is_not_starved_by_other_files_continuing_to_change() {
+    let temp = fixture(2); let root = temp.path(); let mut watch = Session::start(root);
+    fs::write(root.join("src/0.ts"), "//> independently settled\nfinished\n").unwrap();
+    let running = std::sync::atomic::AtomicBool::new(true);
+    std::thread::scope(|scope| {
+        let writer = scope.spawn(|| {
+            let mut n = 0;
+            while running.load(std::sync::atomic::Ordering::Relaxed) {
+                fs::write(root.join("src/1.ts"), format!("//> still editing\n{n}\n")).unwrap(); n += 1;
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        });
+        let until = Instant::now() + Duration::from_secs(4);
+        let mut captured = false;
+        while Instant::now() < until {
+            if !store(root).loops("src/0.ts").unwrap().is_empty() { captured = true; break; }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        running.store(false, std::sync::atomic::Ordering::Relaxed);
+        writer.join().unwrap();
+        assert!(captured, "settled file was starved by unrelated edits");
+    });
+    wait_for(|| !store(root).loops("src/1.ts").unwrap().is_empty());
+    watch.stop();
+}
+
+#[test]
+fn many_changes_spread_outside_two_second_window_remain_ordinary_saves() {
+    let temp = fixture(51); let root = temp.path(); let mut watch = Session::start(root);
+    for i in 0..51 {
+        fs::write(root.join(format!("src/{i}.ts")), "//> ordinary sequential save\nchanged\n").unwrap();
+        std::thread::sleep(Duration::from_millis(65));
+    }
+    wait_for(|| count(root) == 51);
+    let store = store(root);
+    assert_eq!(store.index.query_row("SELECT COUNT(*) FROM loops WHERE kind='save'", [], |r| r.get::<_,i64>(0)).unwrap(), 51);
+    drop(store); watch.stop();
 }
 
 #[test]
@@ -427,21 +477,33 @@ fn foreground_ctrl_c_stops_session_and_releases_instance_lock() {
 #[cfg(all(target_os = "linux", feature = "fault-injection"))]
 #[test]
 fn linux_limit_warns_exact_missing_coverage_and_keeps_covered_files_live() {
-    let temp = fixture(0); let root = temp.path();
+    let temp = fixture(0);
+    let root = temp.path();
     for dir in ["a", "z"] {
-        fs::create_dir(root.join(dir)).unwrap(); fs::write(root.join(dir).join("x.ts"), "base\n").unwrap();
+        fs::create_dir(root.join(dir)).unwrap();
+        fs::write(root.join(dir).join("x.ts"), "base\n").unwrap();
     }
-    git(root, &["add", "a", "z"]); git(root, &["commit", "-qm", "two tracked directories"]);
+    git(root, &["add", "a", "z"]);
+    git(root, &["commit", "-qm", "two tracked directories"]);
     // .gitignore is tracked at the root as well, so the first file directory
     // selected by the limit is root itself. Keep two slots for file directories.
     let mut watch = Session::start_options(root, None, Some("4"));
     let warning = fs::read_to_string(root.join(".watch-stderr")).unwrap();
-    assert!(warning.contains("inotify limit 4") && warning.contains("NOT covered") && warning.contains("max_user_watches"), "{warning}");
-    assert!(warning.contains(&root.join("z").display().to_string()), "{warning}");
+    assert!(
+        warning.contains("inotify limit 4")
+            && warning.contains("NOT covered")
+            && warning.contains("max_user_watches"),
+        "{warning}"
+    );
+    assert!(
+        warning.contains(&root.join("z").display().to_string()),
+        "{warning}"
+    );
     fs::write(root.join("a/x.ts"), "//> covered despite limit\nchanged\n").unwrap();
     fs::write(root.join("z/x.ts"), "//> not covered\nchanged\n").unwrap();
     wait_for(|| count(root) == 1);
-    std::thread::sleep(Duration::from_secs(3)); assert_eq!(count(root), 1);
+    std::thread::sleep(Duration::from_secs(3));
+    assert_eq!(count(root), 1);
     watch.stop();
 }
 
@@ -471,11 +533,24 @@ fn background_session_detaches_and_stops() {
         }
     }
     let _cleanup = Cleanup(root);
-    assert!(px(root, &["watch", "--status"]).starts_with("running pid="));
+    let status = px(root, &["watch", "--status"]);
+    assert!(status.starts_with("running pid="));
+    let pid: u32 = status.split_ascii_whitespace().find_map(|s| s.strip_prefix("pid=")).unwrap().parse().unwrap();
     fs::write(root.join("src/0.ts"), "//> detached save\nbackground\n").unwrap();
     wait_for(|| count(root) == 1);
     px(root, &["watch", "--stop"]);
     wait_for(|| px(root, &["watch", "--status"]).trim() == "not running");
+    wait_for(|| !process_exists(pid));
+}
+
+fn process_exists(pid: u32) -> bool {
+    #[cfg(unix)]
+    { Command::new("ps").args(["-p", &pid.to_string(), "-o", "comm="]).output().is_ok_and(|output| output.status.success() && !output.stdout.is_empty()) }
+    #[cfg(windows)]
+    {
+        let output = Command::new("tasklist").args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"]).output().unwrap();
+        String::from_utf8_lossy(&output.stdout).lines().any(|line| line.split(',').nth(1).is_some_and(|value| value.trim_matches('"') == pid.to_string()))
+    }
 }
 
 fn footprint(pid: u32) -> (u64, f64) {

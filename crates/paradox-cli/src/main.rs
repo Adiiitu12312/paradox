@@ -5,8 +5,8 @@ use clap::Parser;
 use paradox_cli::dispatch::{Route, force_git_args, route};
 
 mod commands;
-mod workflow;
 mod watch;
+mod workflow;
 
 #[derive(Parser)]
 #[command(name = "paradox loop", about = "Save loops of tracked files and exit")]

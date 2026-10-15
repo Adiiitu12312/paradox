@@ -263,11 +263,19 @@ impl LoopStore {
     }
 
     /// Watch uses the ordinary locked capture path, including dedup and skips.
-    pub fn capture_watch(&mut self, inputs: &[std::path::PathBuf], bulk: bool) -> Result<CaptureReport> {
+    pub fn capture_watch(
+        &mut self,
+        inputs: &[std::path::PathBuf],
+        bulk: bool,
+    ) -> Result<CaptureReport> {
         self.capture_inner(inputs, bulk.then_some("bulk change"))
     }
 
-    fn capture_inner(&mut self, inputs: &[std::path::PathBuf], message: Option<&str>) -> Result<CaptureReport> {
+    fn capture_inner(
+        &mut self,
+        inputs: &[std::path::PathBuf],
+        message: Option<&str>,
+    ) -> Result<CaptureReport> {
         let started = std::time::Instant::now();
         let profile = std::env::var_os("PARADOX_PROFILE_CAPTURE").is_some();
         self.checked_dirs.clear();
@@ -353,7 +361,14 @@ impl LoopStore {
             };
             match self.capture_one(
                 &path,
-                (if all || message.is_some() { "scan" } else { "save" }, message),
+                (
+                    if all || message.is_some() {
+                        "scan"
+                    } else {
+                        "save"
+                    },
+                    message,
+                ),
                 all,
                 &mut dirty,
                 cache,

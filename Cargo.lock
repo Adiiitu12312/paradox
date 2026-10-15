@@ -735,7 +735,6 @@ dependencies = [
  "fs2",
  "globset",
  "jsonc-parser",
- "libc",
  "notify",
  "proptest",
  "rusqlite",

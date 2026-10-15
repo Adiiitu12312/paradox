@@ -23,27 +23,43 @@ pub struct Status {
     pub tracked_files: usize,
 }
 
-enum Message { Event(notify::Result<Event>), Stop }
+enum Message {
+    Event(notify::Result<Event>),
+    Stop,
+}
 
 struct SessionFiles(Repo);
 impl Drop for SessionFiles {
     fn drop(&mut self) {
         for path in [state_path(&self.0), stop_path(&self.0)] {
-            if let Err(error) = fs::remove_file(path) && error.kind() != std::io::ErrorKind::NotFound {
+            if let Err(error) = fs::remove_file(path)
+                && error.kind() != std::io::ErrorKind::NotFound
+            {
                 log_at(&self.0.store, &format!("watch cleanup: {error}"));
             }
         }
     }
 }
 
-fn lock_path(repo: &Repo) -> PathBuf { repo.store.join("watch.lock") }
-fn state_path(repo: &Repo) -> PathBuf { repo.store.join("watch.json") }
-fn stop_path(repo: &Repo) -> PathBuf { repo.store.join("watch.stop") }
+fn lock_path(repo: &Repo) -> PathBuf {
+    repo.store.join("watch.lock")
+}
+fn state_path(repo: &Repo) -> PathBuf {
+    repo.store.join("watch.json")
+}
+fn stop_path(repo: &Repo) -> PathBuf {
+    repo.store.join("watch.stop")
+}
 
 fn open_lock(repo: &Repo) -> Result<File> {
     let path = lock_path(repo);
     reject_link(&path)?;
-    Ok(OpenOptions::new().create(true).truncate(false).read(true).write(true).open(path)?)
+    Ok(OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .read(true)
+        .write(true)
+        .open(path)?)
 }
 
 fn read_status(repo: &Repo) -> Result<Status> {
@@ -56,39 +72,71 @@ fn read_status(repo: &Repo) -> Result<Status> {
 
 /// A held kernel lock establishes liveness; stale PID contents do not.
 pub fn status(repo: &Repo) -> Result<Option<Status>> {
-    if !lock_path(repo).exists() { return Ok(None); }
+    if !lock_path(repo).exists() {
+        return Ok(None);
+    }
     let file = open_lock(repo)?;
     match file.try_lock_exclusive() {
-        Ok(()) => { FileExt::unlock(&file)?; Ok(None) }
-        Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => Ok(Some(read_status(repo)?)),
+        Ok(()) => {
+            FileExt::unlock(&file)?;
+            Ok(None)
+        }
+        Err(error)
+            if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() =>
+        {
+            Ok(Some(read_status(repo)?))
+        }
         Err(error) => Err(error.into()),
     }
 }
 
 pub fn stop(repo: &Repo) -> Result<bool> {
-    let Some(state) = status(repo)? else { return Ok(false); };
+    let Some(state) = status(repo)? else {
+        return Ok(false);
+    };
     atomic_write(&stop_path(repo), state.session.as_bytes())?;
     Ok(true)
 }
 
 pub fn session_token() -> Result<String> {
     let temp = tempfile::NamedTempFile::new()?;
-    Ok(blake3::hash(format!("{}:{}:{}", std::process::id(), now()?, temp.path().display()).as_bytes()).to_hex().to_string())
+    Ok(blake3::hash(
+        format!(
+            "{}:{}:{}",
+            std::process::id(),
+            now()?,
+            temp.path().display()
+        )
+        .as_bytes(),
+    )
+    .to_hex()
+    .to_string())
 }
 
-fn normalized(path: &Path) -> PathBuf { fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()) }
+fn normalized(path: &Path) -> PathBuf {
+    fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+}
 
 fn excluded(path: &str) -> bool {
-    path.split('/').any(|part| matches!(part, ".git" | ".paradox" | "node_modules" | "target" | "dist" | "build" | "out" | ".next"))
+    path.split('/').any(|part| {
+        matches!(
+            part,
+            ".git" | ".paradox" | "node_modules" | "target" | "dist" | "build" | "out" | ".next"
+        )
+    })
 }
 
-#[cfg(target_os="linux")]
+#[cfg(target_os = "linux")]
 fn inotify_limit() -> Option<usize> {
-    #[cfg(feature="fault-injection")]
+    #[cfg(feature = "fault-injection")]
     if let Ok(value) = std::env::var("PARADOX_TEST_INOTIFY_LIMIT") {
         return value.parse().ok();
     }
-    fs::read_to_string("/proc/sys/fs/inotify/max_user_watches").ok()?.trim().parse().ok()
+    fs::read_to_string("/proc/sys/fs/inotify/max_user_watches")
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
 }
 
 fn tracked(repo: &Repo) -> Result<HashSet<String>> {
@@ -99,24 +147,45 @@ fn tracked(repo: &Repo) -> Result<HashSet<String>> {
 }
 
 fn remove_ignored(repo: &Repo, paths: &mut HashSet<String>) -> Result<()> {
-    if paths.is_empty() { return Ok(()); }
-    let mut child = repo.command(&["check-ignore", "--no-index", "--stdin", "-z"])
-        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    if paths.is_empty() {
+        return Ok(());
+    }
+    let mut child = repo
+        .command(&["check-ignore", "--no-index", "--stdin", "-z"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()?;
     let mut input = child.stdin.take().context("missing Git ignore input")?;
     // Read stdout concurrently with writing stdin: a large ignored tracked set
     // must never deadlock when both OS pipes fill.
     let output = std::thread::scope(|scope| -> Result<_> {
         let paths: &HashSet<String> = paths;
         let writer = scope.spawn(move || -> std::io::Result<()> {
-            for path in paths { input.write_all(path.as_bytes())?; input.write_all(&[0])?; }
+            for path in paths {
+                input.write_all(path.as_bytes())?;
+                input.write_all(&[0])?;
+            }
             Ok(())
         });
         let output = child.wait_with_output()?;
-        writer.join().map_err(|_| anyhow::anyhow!("Git ignore input writer failed"))??;
+        writer
+            .join()
+            .map_err(|_| anyhow::anyhow!("Git ignore input writer failed"))??;
         Ok(output)
     })?;
-    ensure!(matches!(output.status.code(), Some(0 | 1)), "Git ignore check failed: {}", String::from_utf8_lossy(&output.stderr));
-    for path in output.stdout.split(|byte| *byte == 0).filter_map(|bytes| std::str::from_utf8(bytes).ok()) { paths.remove(path); }
+    ensure!(
+        matches!(output.status.code(), Some(0 | 1)),
+        "Git ignore check failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    for path in output
+        .stdout
+        .split(|byte| *byte == 0)
+        .filter_map(|bytes| std::str::from_utf8(bytes).ok())
+    {
+        paths.remove(path);
+    }
     Ok(())
 }
 
@@ -130,40 +199,79 @@ struct Coverage {
 impl Coverage {
     fn new(repo: &Repo) -> Result<Self> {
         let index = repo.git(&["rev-parse", "--path-format=absolute", "--git-path", "index"])?;
-        Ok(Self { files: HashSet::new(), watched: BTreeSet::new(),
-            index: PathBuf::from(std::str::from_utf8(&index.stdout)?.trim_end_matches(['\r','\n'])),
-            root: normalized(&repo.root) })
+        Ok(Self {
+            files: HashSet::new(),
+            watched: BTreeSet::new(),
+            index: PathBuf::from(
+                std::str::from_utf8(&index.stdout)?.trim_end_matches(['\r', '\n']),
+            ),
+            root: normalized(&repo.root),
+        })
     }
 
     fn refresh(&mut self, repo: &Repo, watcher: &mut RecommendedWatcher) -> Result<()> {
         let files = tracked(repo)?;
-        let controls: BTreeSet<_> = [self.index.parent().context("index has no directory")?.to_path_buf(), repo.store.clone()].into_iter().map(|p| normalized(&p)).collect();
-        let mut directories: BTreeSet<_> = files.iter().filter_map(|name| {
-            let parent = repo.root.join(name).parent()?.to_path_buf();
-            if parent.is_dir() { Some(normalized(&parent)) } else { None }
-        }).collect();
-        #[cfg(target_os="linux")]
+        let controls: BTreeSet<_> = [
+            self.index
+                .parent()
+                .context("index has no directory")?
+                .to_path_buf(),
+            repo.store.clone(),
+        ]
+        .into_iter()
+        .map(|p| normalized(&p))
+        .collect();
+        let mut directories: BTreeSet<_> = files
+            .iter()
+            .filter_map(|name| {
+                let parent = repo.root.join(name).parent()?.to_path_buf();
+                if parent.is_dir() {
+                    Some(normalized(&parent))
+                } else {
+                    None
+                }
+            })
+            .collect();
+        #[cfg(target_os = "linux")]
         {
             if let Some(limit) = inotify_limit() {
                 let available = limit.saturating_sub(controls.len());
                 if directories.len() > available {
-                    let omitted: Vec<_> = directories.iter().skip(available).map(|p| p.display().to_string()).collect();
+                    let omitted: Vec<_> = directories
+                        .iter()
+                        .skip(available)
+                        .map(|p| p.display().to_string())
+                        .collect();
                     directories = directories.into_iter().take(available).collect();
-                    eprintln!("Paradox watch: inotify limit {limit}; these directories are NOT covered: {}. Raise fs.inotify.max_user_watches with sysctl (for example sudo sysctl fs.inotify.max_user_watches=524288).", omitted.join(", "));
+                    eprintln!(
+                        "Paradox watch: inotify limit {limit}; these directories are NOT covered: {}. Raise fs.inotify.max_user_watches with sysctl (for example sudo sysctl fs.inotify.max_user_watches=524288).",
+                        omitted.join(", ")
+                    );
                 }
             }
         }
         directories.extend(controls);
         for path in self.watched.difference(&directories) {
-            if let Err(error) = watcher.unwatch(path) { log_at(&repo.store, &format!("watch unwatch {}: {error}", path.display())); }
+            if let Err(error) = watcher.unwatch(path) {
+                log_at(
+                    &repo.store,
+                    &format!("watch unwatch {}: {error}", path.display()),
+                );
+            }
         }
         let mut active: BTreeSet<_> = self.watched.intersection(&directories).cloned().collect();
         for path in directories.difference(&self.watched) {
             match watcher.watch(path, RecursiveMode::NonRecursive) {
-                Ok(()) => { active.insert(path.clone()); },
+                Ok(()) => {
+                    active.insert(path.clone());
+                }
                 Err(error) => {
-                    let warning = format!("watch coverage missing {}: {error}; on Linux raise fs.inotify.max_user_watches", path.display());
-                    eprintln!("Paradox {warning}"); log_at(&repo.store, &warning);
+                    let warning = format!(
+                        "watch coverage missing {}: {error}; on Linux raise fs.inotify.max_user_watches",
+                        path.display()
+                    );
+                    eprintln!("Paradox {warning}");
+                    log_at(&repo.store, &warning);
                 }
             }
         }
@@ -186,9 +294,12 @@ impl Coverage {
 }
 
 fn idle_duration(minutes: u64) -> Option<Duration> {
-    #[cfg(feature="fault-injection")]
+    #[cfg(feature = "fault-injection")]
     if let Ok(value) = std::env::var("PARADOX_TEST_WATCH_IDLE_MS")
-        && let Ok(value) = value.parse::<u64>() { return Some(Duration::from_millis(value)); }
+        && let Ok(value) = value.parse::<u64>()
+    {
+        return Some(Duration::from_millis(value));
+    }
     (minutes != 0).then(|| Duration::from_secs(minutes.saturating_mul(60)))
 }
 
@@ -196,8 +307,17 @@ fn persist_status(repo: &Repo, state: &Status) -> Result<()> {
     // Watch controls are bounded; include their budget alongside existing data.
     let store = LoopStore::open(repo.clone())?;
     let bytes = serde_json::to_vec(state)?;
-    let previous = fs::metadata(state_path(repo)).map(|m| m.len().max(4096)).unwrap_or(0);
-    ensure!(store.bytes()?.saturating_sub(previous).saturating_add((bytes.len() as u64).max(4096)) <= store.config.store_cap_bytes, "watch status does not fit the store cap");
+    let previous = fs::metadata(state_path(repo))
+        .map(|m| m.len().max(4096))
+        .unwrap_or(0);
+    ensure!(
+        store
+            .bytes()?
+            .saturating_sub(previous)
+            .saturating_add((bytes.len() as u64).max(4096))
+            <= store.config.store_cap_bytes,
+        "watch status does not fit the store cap"
+    );
     atomic_write(&state_path(repo), &bytes)
 }
 
@@ -208,105 +328,200 @@ fn receive(receiver: &Receiver<Message>, timeout: Option<Duration>) -> Result<Op
             Err(RecvTimeoutError::Timeout) => Ok(None),
             Err(RecvTimeoutError::Disconnected) => anyhow::bail!("native watcher disconnected"),
         }
-    } else { Ok(Some(receiver.recv()?)) }
+    } else {
+        Ok(Some(receiver.recv()?))
+    }
 }
 
 pub fn run(repo: Repo, token: String) -> Result<()> {
-    let config = { let store = LoopStore::open(repo.clone())?; store.config.clone() };
+    let config = {
+        let store = LoopStore::open(repo.clone())?;
+        store.config.clone()
+    };
     let lock = open_lock(&repo)?;
-    lock.try_lock_exclusive().context("Paradox watch is already running in this repository")?;
+    lock.try_lock_exclusive()
+        .context("Paradox watch is already running in this repository")?;
     let session_files = SessionFiles(repo.clone());
     // Holding the kernel lock proves any previous state is stale, regardless of
     // PID reuse. Stop requests authenticate the session token rather than kill PID.
-    for path in [state_path(&repo), stop_path(&repo)] { reject_link(&path)?; if path.exists() { fs::remove_file(path)?; } }
+    for path in [state_path(&repo), stop_path(&repo)] {
+        reject_link(&path)?;
+        if path.exists() {
+            fs::remove_file(path)?;
+        }
+    }
     let (sender, receiver) = mpsc::channel();
     let signals = sender.clone();
-    ctrlc::set_handler(move || { let _ = signals.send(Message::Stop); })?;
-    let mut watcher: RecommendedWatcher = notify::recommended_watcher(move |event| { let _ = sender.send(Message::Event(event)); })?;
+    ctrlc::set_handler(move || {
+        let _ = signals.send(Message::Stop);
+    })?;
+    let mut watcher: RecommendedWatcher = notify::recommended_watcher(move |event| {
+        let _ = sender.send(Message::Event(event));
+    })?;
     let mut coverage = Coverage::new(&repo)?;
     coverage.refresh(&repo, &mut watcher)?;
-    let mut state = Status { pid: std::process::id(), session: token, started_ms: now()?, loops_created: 0, tracked_files: coverage.files.len() };
+    let mut state = Status {
+        pid: std::process::id(),
+        session: token,
+        started_ms: now()?,
+        loops_created: 0,
+        tracked_files: coverage.files.len(),
+    };
     // Reserve the stop mailbox while starting, so stopping never needs new
     // quota allocation even if subsequent loops fill the store.
     {
         let store = LoopStore::open(repo.clone())?;
-        ensure!(store.bytes()?.saturating_add(8192) <= store.config.store_cap_bytes, "watch controls do not fit the store cap");
+        ensure!(
+            store.bytes()?.saturating_add(8192) <= store.config.store_cap_bytes,
+            "watch controls do not fit the store cap"
+        );
         atomic_write(&stop_path(&repo), b"")?;
     }
     persist_status(&repo, &state)?;
     let idle = idle_duration(config.watch_idle_minutes);
-    println!("Paradox watching {} tracked files; {}", state.tracked_files, if idle.is_some() { format!("stops after {} min idle", config.watch_idle_minutes) } else { "idle exit disabled".to_string() });
+    println!(
+        "Paradox watching {} tracked files; {}",
+        state.tracked_files,
+        if idle.is_some() {
+            format!("stops after {} min idle", config.watch_idle_minutes)
+        } else {
+            "idle exit disabled".to_string()
+        }
+    );
     std::io::stdout().flush()?;
-    let mut pending: HashMap<String, Instant> = HashMap::new();
-    let mut first = None;
+    let mut pending: HashMap<String, (Instant, Instant)> = HashMap::new();
+    let mut recent: HashMap<String, Instant> = HashMap::new();
     let mut last_change = Instant::now();
     let mut bulk = false;
     let result = (|| -> Result<()> {
         loop {
             let clock = Instant::now();
-            let batch_due = first.map(|start: Instant| {
-                let settled = pending.values().max().copied().unwrap_or(start) + Duration::from_millis(300);
-                if bulk { settled.max(last_change + Duration::from_secs(2)) } else { settled.max(start + Duration::from_secs(2)) }
-            });
-            let idle_due = pending.is_empty().then(|| idle.map(|period| last_change + period)).flatten();
+            let file_due = |&(first, last): &(Instant, Instant)| {
+                (first + Duration::from_secs(2)).max(last + Duration::from_millis(300))
+            };
+            let batch_due = if bulk && !pending.is_empty() {
+                Some(last_change + Duration::from_secs(2))
+            } else {
+                pending.values().map(file_due).min()
+            };
+            // Deadline handling runs before receiving another event, so a
+            // continuous stream for one file cannot starve a different file
+            // that has already settled. Only the two-second classification
+            // lookahead is shared with the bulk policy; debounce is per file.
+            if batch_due.is_some_and(|due| clock >= due) {
+                let eligible: HashSet<_> = pending.iter()
+                    .filter(|(_, times)| bulk || clock >= file_due(times))
+                    .map(|(name, _)| name.clone()).collect();
+                let mut selected = eligible.clone();
+                // Ignore rules may change without an index update.
+                if let Err(error) = remove_ignored(&repo, &mut selected) {
+                    log_at(&repo.store, &format!("watch ignore check: {error:#}"));
+                    selected.clear();
+                }
+                let paths: Vec<_> = selected.iter().map(|name| repo.root.join(name)).collect();
+                if bulk {
+                    log_at(&repo.store, &format!("watch bulk operation: {} files; recording bulk change loops", paths.len()));
+                }
+                let result = if paths.is_empty() {
+                    Ok(crate::store::CaptureReport::default())
+                } else {
+                    Repo::discover(&repo.globals)
+                        .and_then(LoopStore::open)
+                        .and_then(|mut store| store.capture_watch(&paths, bulk))
+                };
+                match result {
+                    Ok(report) => state.loops_created += report.saved as u64,
+                    Err(error) => log_at(&repo.store, &format!("watch capture: {error:#}")),
+                }
+                for name in eligible { pending.remove(&name); }
+                if bulk { recent.clear(); bulk = false; }
+                if let Err(error) = persist_status(&repo, &state) {
+                    log_at(&repo.store, &format!("watch status: {error:#}"));
+                }
+                continue;
+            }
+            let idle_due = pending
+                .is_empty()
+                .then(|| idle.map(|period| last_change + period))
+                .flatten();
             let deadline = batch_due.into_iter().chain(idle_due).min();
             let timeout = deadline.map(|time| time.saturating_duration_since(clock));
             match receive(&receiver, timeout)? {
                 Some(Message::Stop) => break,
-                Some(Message::Event(Err(error))) => { log_at(&repo.store, &format!("watch native event: {error}")); },
+                Some(Message::Event(Err(error))) => {
+                    log_at(&repo.store, &format!("watch native event: {error}"));
+                }
                 Some(Message::Event(Ok(event))) => {
-                    if matches!(event.kind, EventKind::Access(_)) { continue; }
+                    if matches!(event.kind, EventKind::Access(_)) {
+                        continue;
+                    }
                     let mut refresh = false;
                     for path in &event.paths {
                         let parent = path.parent().map(normalized);
-                        let normalized_path = parent.map(|p| p.join(path.file_name().unwrap_or_default())).unwrap_or_else(|| path.clone());
+                        let normalized_path = parent
+                            .map(|p| p.join(path.file_name().unwrap_or_default()))
+                            .unwrap_or_else(|| path.clone());
                         if normalized_path == normalized(&repo.store).join("watch.stop") {
-                            if fs::read_to_string(stop_path(&repo)).is_ok_and(|s| s == state.session) { return Ok(()); }
+                            if fs::read_to_string(stop_path(&repo))
+                                .is_ok_and(|s| s == state.session)
+                            {
+                                return Ok(());
+                            }
                             continue;
                         }
-                        if normalized_path == normalized(coverage.index.parent().context("index directory")?).join(coverage.index.file_name().context("index filename")?) || normalized_path == normalized(&repo.store).join("tracked.toml") { refresh = true; continue; }
-                        if path.file_name().is_some_and(|name| name == ".gitignore") { refresh = true; }
+                        if normalized_path
+                            == normalized(coverage.index.parent().context("index directory")?)
+                                .join(coverage.index.file_name().context("index filename")?)
+                            || normalized_path == normalized(&repo.store).join("tracked.toml")
+                        {
+                            refresh = true;
+                            continue;
+                        }
+                        if path.file_name().is_some_and(|name| name == ".gitignore") {
+                            refresh = true;
+                        }
                         if let Some(name) = coverage.relative(path) {
                             let clock = Instant::now();
-                            pending.insert(name, clock);
-                            first.get_or_insert(clock);
+                            pending.entry(name.clone()).and_modify(|times| times.1 = clock)
+                                .or_insert((clock, clock));
+                            recent.retain(|_, when| clock.duration_since(*when) <= Duration::from_secs(2));
+                            recent.insert(name, clock);
                             last_change = clock;
-                            if pending.len() > 50 { bulk = true; }
+                            if recent.len() > 50 {
+                                bulk = true;
+                            }
                         }
                     }
                     if refresh {
-                        if let Err(error) = coverage.refresh(&repo, &mut watcher) { log_at(&repo.store, &format!("watch tracked refresh: {error:#}")); }
+                        if let Err(error) = coverage.refresh(&repo, &mut watcher) {
+                            log_at(&repo.store, &format!("watch tracked refresh: {error:#}"));
+                        }
                         state.tracked_files = coverage.files.len();
-                        if let Err(error) = persist_status(&repo, &state) { log_at(&repo.store, &format!("watch status: {error:#}")); }
+                        if let Err(error) = persist_status(&repo, &state) {
+                            log_at(&repo.store, &format!("watch status: {error:#}"));
+                        }
                     }
-                },
+                }
                 None => {
-                    if batch_due.is_some_and(|due| Instant::now() >= due) && !pending.is_empty() {
-                        let mut selected: HashSet<_> = pending.keys().cloned().collect();
-                        // Ignore rules may change without an index update.
-                        if let Err(error) = remove_ignored(&repo, &mut selected) {
-                            log_at(&repo.store, &format!("watch ignore check: {error:#}")); selected.clear();
-                        }
-                        let paths: Vec<_> = selected.iter().map(|name| repo.root.join(name)).collect();
-                        if bulk { log_at(&repo.store, &format!("watch bulk operation: {} files; recording bulk change loops", paths.len())); }
-                        let result = if paths.is_empty() { Ok(crate::store::CaptureReport::default()) }
-                            else { Repo::discover(&repo.globals).and_then(LoopStore::open).and_then(|mut store| store.capture_watch(&paths, bulk)) };
-                        match result {
-                            Ok(report) => { state.loops_created += report.saved as u64; },
-                            Err(error) => log_at(&repo.store, &format!("watch capture: {error:#}")),
-                        }
-                        pending.clear(); first = None; bulk = false;
-                        if let Err(error) = persist_status(&repo, &state) { log_at(&repo.store, &format!("watch status: {error:#}")); }
+                    if idle.is_some_and(|period| last_change.elapsed() >= period)
+                        && pending.is_empty()
+                    {
+                        break;
                     }
-                    if idle.is_some_and(|period| last_change.elapsed() >= period) && pending.is_empty() { break; }
-                },
+                }
             }
         }
         Ok(())
     })();
     // Remove only this session's controls while still owning the kernel lock.
-    drop(watcher); drop(session_files); drop(lock);
-    let _ = writeln!(std::io::stdout(), "Paradox watch stopped; {} loops created", state.loops_created);
+    drop(watcher);
+    drop(session_files);
+    drop(lock);
+    let _ = writeln!(
+        std::io::stdout(),
+        "Paradox watch stopped; {} loops created",
+        state.loops_created
+    );
     let _ = std::io::stdout().flush();
     result
 }
@@ -314,14 +529,25 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
 /// Background launchers wait for a native control-file event, never poll.
 pub fn wait_started(repo: &Repo, token: &str, launch: impl FnOnce() -> Result<()>) -> Result<()> {
     let (sender, receiver) = mpsc::channel();
-    let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| { let _ = sender.send(event); })?;
+    let mut watcher = notify::recommended_watcher(move |event: notify::Result<Event>| {
+        let _ = sender.send(event);
+    })?;
     watcher.watch(&repo.store, RecursiveMode::NonRecursive)?;
     launch()?;
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
-        if let Ok(state) = read_status(repo) && state.session == token { return Ok(()); }
+        if let Ok(state) = read_status(repo)
+            && state.session == token
+        {
+            return Ok(());
+        }
         let remaining = deadline.saturating_duration_since(Instant::now());
-        ensure!(!remaining.is_zero(), "watch background startup timed out; see .paradox/watch-output.log");
-        receiver.recv_timeout(remaining).context("watch background startup timed out; see .paradox/watch-output.log")??;
+        ensure!(
+            !remaining.is_zero(),
+            "watch background startup timed out; see .paradox/watch-output.log"
+        );
+        receiver
+            .recv_timeout(remaining)
+            .context("watch background startup timed out; see .paradox/watch-output.log")??;
     }
 }
