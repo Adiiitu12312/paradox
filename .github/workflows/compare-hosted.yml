@@ -2,6 +2,13 @@ name: Compare hosted macOS binaries
 on:
   workflow_dispatch:
     inputs:
+      runner_label:
+        description: Fixed ARM64 macOS image for controlled comparisons
+        type: choice
+        options:
+          - macos-latest
+          - macos-15
+        default: macos-latest
       previous_run:
         description: Previous passing build run
         required: true
@@ -13,7 +20,7 @@ permissions:
   actions: read
 jobs:
   compare:
-    runs-on: macos-latest
+    runs-on: ${{ inputs.runner_label }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
