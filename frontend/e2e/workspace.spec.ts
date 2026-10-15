@@ -102,3 +102,45 @@ test('user hooks can reject a browser commit without losing the draft or working
   await page.getByText('Git command log').click()
   await expect(page.locator('.command-log')).toContainText('UI fixture hook refused commit')
 })
+
+test('virtualizes and pages the native graph of a 100,000-commit repository', async ({ page }) => {
+  const stream = Array.from({ length: 100_000 }, (_, index) => {
+    const subject = `Large history ${index}`
+    return `commit refs/heads/main\ncommitter UI Fixture <fixture@example.invalid> ${1_700_000_000 + index} +0000\ndata ${Buffer.byteLength(subject)}\n${subject}\n${index === 0 ? 'from refs/heads/main\n' : ''}\n`
+  }).join('') + 'done\n'
+  execFileSync('git', ['fast-import', '--quiet'], { cwd: root, env: { ...env, GIT_CONFIG_NOSYSTEM: '1', GIT_CONFIG_GLOBAL: join(root, 'absent-global') }, input: stream })
+  await page.goto(url)
+  await page.getByRole('button', { name: 'History', exact: true }).click()
+  await expect(page.getByRole('button', { name: /Large history 99999/ })).toBeVisible()
+  expect(await page.locator('.graph-row').count()).toBeLessThan(60)
+  await page.locator('.graph-scroll').evaluate(element => { element.scrollTop = element.scrollHeight })
+  await expect(page.getByRole('button', { name: /Large history 99800/ })).toBeVisible()
+  await page.getByRole('button', { name: 'Older', exact: true }).click()
+  await expect(page.getByText('Page 2', { exact: true })).toBeVisible()
+  await page.locator('.graph-scroll').evaluate(element => { element.scrollTop = 0 })
+  await expect(page.getByRole('button', { name: /Large history 99799/ })).toBeVisible()
+  expect(await page.locator('.graph-row').count()).toBeLessThan(60)
+  await page.getByRole('button', { name: 'Newer', exact: true }).click()
+  await expect(page.getByText('Page 1', { exact: true })).toBeVisible()
+})
+
+test('amend requires confirmation and preserves unstaged working contents', async ({ page }) => {
+  const before = git('rev-parse', 'HEAD').trim()
+  await page.goto(url)
+  await expect(page.locator('.sidebar-note')).toContainText('Local session')
+  await page.getByLabel('Commit message').fill('Clarify initial fixture')
+  await page.getByLabel('Amend latest commit').check()
+  await page.getByRole('button', { name: 'Amend commit', exact: true }).click()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  expect(git('rev-parse', 'HEAD').trim()).toBe(before)
+  await page.getByRole('dialog').getByRole('button', { name: 'Cancel', exact: true }).click()
+  expect(git('rev-parse', 'HEAD').trim()).toBe(before)
+  await page.getByRole('button', { name: 'Amend commit', exact: true }).click()
+  await page.getByRole('dialog').getByRole('button', { name: 'Amend commit', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('Commit amended')
+  expect(git('rev-parse', 'HEAD').trim()).not.toBe(before)
+  expect(git('rev-list', '--count', 'HEAD').trim()).toBe('1')
+  expect(git('show', 'HEAD:sample.ts')).toBe(original)
+  expect(git('show', `${before}:sample.ts`)).toBe(original)
+  expect(readFileSync(join(root, 'sample.ts'), 'utf8')).toBe(working)
+})

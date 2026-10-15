@@ -40,6 +40,16 @@ jobs:
           run-id: ${{ inputs.build_run }}
       - if: runner.os != 'Windows'
         run: chmod +x ui-bin/paradox
+      - name: Verify macOS startup frameworks remain lazy
+        if: runner.os == 'macOS'
+        run: |
+          otool -L ui-bin/paradox | tee startup-dependencies.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          linked = Path('startup-dependencies.txt').read_text()
+          for framework in ('CoreFoundation.framework', 'CoreServices.framework'):
+              assert framework not in linked, f'{framework} must load only on demand: {linked}'
+          PY
       - name: Record exact binary and browser fixture provenance
         env:
           BUILD_RUN: ${{ inputs.build_run }}
@@ -64,5 +74,6 @@ jobs:
             ui-evidence/
             frontend/playwright-report/
             frontend/test-results/
+            startup-dependencies.txt
           if-no-files-found: error
           retention-days: 7
