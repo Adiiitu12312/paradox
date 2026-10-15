@@ -326,8 +326,13 @@ fn blob_charge_matches_allocation_after_writer_closes() {
     let logical = file.metadata().unwrap().len();
     let allocated = fs2::FileExt::allocated_size(&file).unwrap();
     let expected = allocated.max(logical).max(4096).saturating_add(4096);
-    eprintln!("blob charge={charged} actual_charge={expected} allocated={allocated} logical={logical}");
-    assert_eq!(charged, expected, "blob charge must reflect retained allocation");
+    eprintln!(
+        "blob charge={charged} actual_charge={expected} allocated={allocated} logical={logical}"
+    );
+    assert_eq!(
+        charged, expected,
+        "blob charge must reflect retained allocation"
+    );
     assert_eq!(blobs.get(&hash).unwrap(), bytes);
 }
 
@@ -349,12 +354,15 @@ fn evicts_oldest_unpinned_and_keeps_pins_with_bounded_storage() {
         .index
         .prepare("SELECT hash, stored_size FROM blobs ORDER BY hash")
         .unwrap()
-        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))
+        .query_map([], |row| {
+            Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?))
+        })
         .unwrap()
         .collect::<Result<Vec<_>, _>>()
         .unwrap();
     assert_eq!(
-        second.saved, 1,
+        second.saved,
+        1,
         "report={second:?}, stored_sizes={stored_sizes:?}, bytes={:?}, log={}",
         store.bytes(),
         fs::read_to_string(store.repo.store.join("log")).unwrap_or_default()

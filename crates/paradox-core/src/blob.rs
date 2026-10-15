@@ -98,7 +98,21 @@ impl BlobStore for LocalStore {
         reject_link(&path)?;
         let file = if !path.exists() {
             let compressed = zstd::stream::encode_all(bytes, 3)?;
-            atomic_write_file(&path, &compressed)?
+            let file = atomic_write_file(&path, &compressed)?;
+            #[cfg(windows)]
+            {
+                use std::os::windows::fs::OpenOptionsExt;
+                // NTFS releases the writer's extra allocation reservation on
+                // close. Query retained allocation afterwards without asking
+                // for file-content access.
+                drop(file);
+                const FILE_READ_ATTRIBUTES: u32 = 0x80;
+                fs::OpenOptions::new()
+                    .access_mode(FILE_READ_ATTRIBUTES)
+                    .open(&path)?
+            }
+            #[cfg(not(windows))]
+            file
         } else {
             let _ = self.get(hash)?;
             File::open(path)?

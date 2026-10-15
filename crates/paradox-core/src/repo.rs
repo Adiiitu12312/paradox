@@ -320,14 +320,16 @@ impl Repo {
         self.regular_file_cached(path, &mut HashSet::new())
     }
 
-    /// Stat only supplied tracked paths. Windows metadata calls benefit from
-    /// bounded I/O concurrency; each worker still verifies directory components.
+    /// Stat only supplied tracked paths. Windows and macOS metadata calls benefit
+    /// from bounded I/O concurrency; every worker verifies directory components.
     pub fn scan_metadata(
         &self,
         paths: &[String],
     ) -> Result<Vec<Result<Option<std::fs::Metadata>>>> {
         let workers = if cfg!(windows) && paths.len() >= 512 {
             8
+        } else if cfg!(target_os = "macos") && paths.len() >= 512 {
+            4
         } else {
             1
         };
