@@ -550,15 +550,47 @@ fn many_changes_spread_outside_two_second_window_remain_ordinary_saves() {
     let temp = fixture(51);
     let root = temp.path();
     let mut watch = Session::start(root);
+    let started = Instant::now();
     for i in 0..51 {
+        let path = format!("src/{i}.ts");
         fs::write(
-            root.join(format!("src/{i}.ts")),
+            root.join(&path),
             "//> ordinary sequential save\nchanged\n",
         )
         .unwrap();
-        std::thread::sleep(Duration::from_millis(65));
+        // A native callback and durable capture acknowledge each save before
+        // the next path changes. Fixed sleeps cannot establish that ordering
+        // when native delivery or the shared CI disk is busy with bulk tests.
+        // This exercises expiration of a rolling window across >50 distinct
+        // paths; the separate burst tests exercise the opposite classification.
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let current = store(root);
+            let rows = current.loops(&path).unwrap();
+            if !rows.is_empty() {
+                assert_eq!(rows.len(), 1, "unexpected versions for {path}");
+                assert_eq!(rows[0].kind, "save", "slow sequential save became bulk: {path}");
+                assert_eq!(rows[0].message, "ordinary sequential save");
+                assert_eq!(current.blobs.get(&rows[0].blob_hash).unwrap(), b"//> ordinary sequential save\nchanged\n");
+                break;
+            }
+            let total: i64 = current.index.query_row("SELECT COUNT(*) FROM loops", [], |r| r.get(0)).unwrap();
+            drop(current);
+            assert!(
+                Instant::now() < deadline,
+                "watch did not acknowledge {path}; captured={total}, elapsed={:?}, status={:?}, log={}, stderr={}",
+                started.elapsed(), watch.child.try_wait().unwrap(),
+                fs::read_to_string(root.join(".paradox/log")).unwrap_or_default(),
+                fs::read_to_string(root.join(".watch-stderr")).unwrap_or_default()
+            );
+            std::thread::sleep(Duration::from_millis(50));
+        }
     }
-    wait_for(|| count(root) == 51);
+    assert!(started.elapsed() > Duration::from_secs(2));
+    // Allow any already queued callbacks and the full rolling window to settle
+    // before asserting that no save was later promoted or duplicated.
+    std::thread::sleep(Duration::from_millis(2100));
+    assert_eq!(count(root), 51);
     let store = store(root);
     assert_eq!(
         store
