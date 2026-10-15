@@ -33,6 +33,7 @@ fn passthrough_overhead_below_five_ms() {
             .unwrap()
             .success()
     );
+    let mut below_limit = true;
     for args in [&["--version"][..], &["status", "--porcelain=v2", "-z"]] {
         let mut direct = Vec::new();
         let mut wrapped = Vec::new();
@@ -64,9 +65,7 @@ fn passthrough_overhead_below_five_ms() {
         println!(
             "{args:?}: git median={git:?}, paradox median={paradox:?}, paired overhead={overhead:?}, n=101"
         );
-        assert!(
-            overhead < Duration::from_millis(5),
-            "pass-through overhead {overhead:?} exceeds 5 ms"
-        );
+        below_limit &= overhead < Duration::from_millis(5);
     }
+    assert!(below_limit, "pass-through overhead exceeded 5 ms; see both measurements above");
 }

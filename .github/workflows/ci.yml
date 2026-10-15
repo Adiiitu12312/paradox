@@ -18,7 +18,6 @@ jobs:
       - run: cargo fmt --all --check
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace --locked
-      - run: cargo test --release --test performance --locked -- --ignored --nocapture
       - run: cargo build --release --locked -p paradox-cli
       - name: Install Windows terminal test helper on hosted runner
         if: runner.os == 'Windows'
@@ -38,6 +37,7 @@ jobs:
             target/release/paradox.exe
           if-no-files-found: error
           retention-days: 7
+      - run: cargo test --release --test performance --locked -- --ignored --nocapture
   audit:
     runs-on: ubuntu-latest
     steps:
