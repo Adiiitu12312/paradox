@@ -299,6 +299,29 @@ impl Coverage {
         })
     }
 
+    fn directory(&self, relative: &Path) -> Option<PathBuf> {
+        let mut directory = self.root.clone();
+        let metadata = fs::symlink_metadata(&directory).ok()?;
+        if metadata.file_type().is_symlink() || !metadata.is_dir() {
+            return None;
+        }
+        for component in relative.components() {
+            let std::path::Component::Normal(name) = component else {
+                return None;
+            };
+            directory.push(name);
+            // Check each unique parent independently of file existence: a
+            // missing final file must stay covered for recreation, while a
+            // replaced directory must never redirect the native watch.
+            let metadata = fs::symlink_metadata(&directory).ok()?;
+            if metadata.file_type().is_symlink() || !metadata.is_dir() {
+                return None;
+            }
+        }
+        let directory = fs::canonicalize(directory).ok()?;
+        directory.starts_with(&self.root).then_some(directory)
+    }
+
     fn refresh(&mut self, repo: &Repo, watcher: &mut RecommendedWatcher) -> Result<()> {
         let files = tracked(repo)?;
         let controls: BTreeSet<_> = [
@@ -317,14 +340,7 @@ impl Coverage {
             .collect();
         let mut directories: BTreeSet<_> = parents
             .into_iter()
-            .filter_map(|parent| {
-                let parent = repo.root.join(parent);
-                if parent.is_dir() {
-                    Some(normalized(&parent))
-                } else {
-                    None
-                }
-            })
+            .filter_map(|parent| self.directory(parent))
             .collect();
         #[cfg(target_os = "linux")]
         {
@@ -882,14 +898,29 @@ mod tracked_paths_tests {
                 .env("GIT_CONFIG_GLOBAL", root.path().join("absent-global"))
                 .output()
                 .unwrap();
-            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+            assert!(
+                output.status.success(),
+                "{}",
+                String::from_utf8_lossy(&output.stderr)
+            );
         };
         git(&["init", "-q", "--initial-branch=main"]);
         for directory in ["nested", "ignored", "build"] {
             std::fs::create_dir(root.path().join(directory)).unwrap();
         }
-        std::fs::write(root.path().join(".gitignore"), ".paradox/\nignored/\nforced.ts\n").unwrap();
-        let cached = ["keep.ts", "missing.ts", "nested/space 日本語.ts", "forced.ts", "ignored/cached.ts", "build/cached.ts"];
+        std::fs::write(
+            root.path().join(".gitignore"),
+            ".paradox/\nignored/\nforced.ts\n",
+        )
+        .unwrap();
+        let cached = [
+            "keep.ts",
+            "missing.ts",
+            "nested/space 日本語.ts",
+            "forced.ts",
+            "ignored/cached.ts",
+            "build/cached.ts",
+        ];
         for name in cached {
             std::fs::write(root.path().join(name), "base\n").unwrap();
         }
@@ -901,22 +932,105 @@ mod tracked_paths_tests {
             std::fs::write(root.path().join(name), "extra\n").unwrap();
         }
         let repo = crate::repo::Repo::discover(&[
-            std::ffi::OsString::from("-C"), root.path().as_os_str().to_owned(),
-        ]).unwrap();
+            std::ffi::OsString::from("-C"),
+            root.path().as_os_str().to_owned(),
+        ])
+        .unwrap();
         std::fs::create_dir_all(&repo.store).unwrap();
-        std::fs::write(repo.store.join("tracked.toml"), format!(
-            "[worktrees]\n{} = [\"extra.ts\", \"keep.ts\", \"ignored/extra.ts\"]\n", repo.worktree
-        )).unwrap();
+        std::fs::write(
+            repo.store.join("tracked.toml"),
+            format!(
+                "[worktrees]\n{} = [\"extra.ts\", \"keep.ts\", \"ignored/extra.ts\"]\n",
+                repo.worktree
+            ),
+        )
+        .unwrap();
         let mut reference = repo.tracked(&[]).unwrap();
         reference.retain(|path| !super::excluded(path) && repo.regular_file(path).is_ok());
         super::remove_ignored(&repo, &mut reference).unwrap();
         let actual = super::tracked(&repo).unwrap();
-        assert_eq!(actual.len(), reference.len(), "Git and explicit paths must deduplicate");
-        assert_eq!(actual.iter().collect::<HashSet<_>>(), reference.iter().map(String::as_str).collect());
-        assert!(actual.contains("missing.ts"), "deleted tracked paths must remain eligible for recreation");
+        assert_eq!(
+            actual.len(),
+            reference.len(),
+            "Git and explicit paths must deduplicate"
+        );
+        assert_eq!(
+            actual.iter().collect::<HashSet<_>>(),
+            reference.iter().map(String::as_str).collect()
+        );
+        assert!(
+            actual.contains("missing.ts"),
+            "deleted tracked paths must remain eligible for recreation"
+        );
         assert!(actual.contains("extra.ts"));
-        for excluded in ["forced.ts", "ignored/cached.ts", "ignored/extra.ts", "build/cached.ts", "raw-untracked.ts"] {
+        for excluded in [
+            "forced.ts",
+            "ignored/cached.ts",
+            "ignored/extra.ts",
+            "build/cached.ts",
+            "raw-untracked.ts",
+        ] {
             assert!(!actual.contains(excluded), "{excluded}");
+        }
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn native_coverage_rejects_replaced_directory_links_but_keeps_safe_parents() {
+        let root = tempfile::tempdir().unwrap();
+        let outside = tempfile::tempdir().unwrap();
+        let git = |arguments: &[&str]| {
+            let mut command = std::process::Command::new("git");
+            command.args(arguments).current_dir(root.path());
+            for (name, _) in std::env::vars_os() {
+                if name.to_string_lossy().starts_with("GIT_") {
+                    command.env_remove(name);
+                }
+            }
+            let output = command
+                .env("GIT_CONFIG_NOSYSTEM", "1")
+                .env("GIT_CONFIG_GLOBAL", root.path().join("absent-global"))
+                .output()
+                .unwrap();
+            assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+        };
+        git(&["init", "-q", "--initial-branch=main"]);
+        for directory in ["safe", "outlink", "inlink", "local_target"] {
+            std::fs::create_dir(root.path().join(directory)).unwrap();
+        }
+        let cached = ["safe/missing.ts", "outlink/file.ts", "inlink/file.ts", "final.ts"];
+        for name in cached {
+            std::fs::write(root.path().join(name), "base\n").unwrap();
+        }
+        let mut add = vec!["add", "--"];
+        add.extend(cached);
+        git(&add);
+        for directory in ["outlink", "inlink"] {
+            std::fs::remove_file(root.path().join(directory).join("file.ts")).unwrap();
+            std::fs::remove_dir(root.path().join(directory)).unwrap();
+        }
+        std::fs::write(outside.path().join("file.ts"), "external\n").unwrap();
+        std::fs::write(root.path().join("local_target/file.ts"), "untracked target\n").unwrap();
+        std::os::unix::fs::symlink(outside.path(), root.path().join("outlink")).unwrap();
+        std::os::unix::fs::symlink(root.path().join("local_target"), root.path().join("inlink")).unwrap();
+        std::fs::remove_file(root.path().join("safe/missing.ts")).unwrap();
+        std::fs::remove_file(root.path().join("final.ts")).unwrap();
+        std::os::unix::fs::symlink(outside.path().join("file.ts"), root.path().join("final.ts")).unwrap();
+        let repo = crate::repo::Repo::discover(&[
+            std::ffi::OsString::from("-C"), root.path().as_os_str().to_owned(),
+        ]).unwrap();
+        std::fs::create_dir_all(&repo.store).unwrap();
+        let mut coverage = super::Coverage::new(&repo).unwrap();
+        let mut watcher = notify::recommended_watcher(|_: notify::Result<notify::Event>| {}).unwrap();
+        coverage.refresh(&repo, &mut watcher).unwrap();
+        assert!(!coverage.watched.contains(&super::normalized(outside.path())));
+        assert!(!coverage.watched.contains(&super::normalized(&root.path().join("local_target"))));
+        assert!(coverage.watched.contains(&super::normalized(root.path())));
+        assert!(coverage.watched.contains(&super::normalized(&root.path().join("safe"))));
+        assert!(coverage.files.contains("safe/missing.ts"));
+        assert!(coverage.files.contains("final.ts"));
+        for rejected in ["outlink", "inlink", "absent", "safe/missing.ts", "../outside"] {
+            assert!(coverage.directory(std::path::Path::new(rejected)).is_none(), "{rejected}");
         }
     }
 }
