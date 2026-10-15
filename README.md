@@ -7,9 +7,23 @@ Git remains the source of truth; every Git operation uses the installed Git bina
 dispatcher. Loop storage, automatic capture, auto-staging commits and the UI are
 scheduled for later milestones. Do not alias `git` to this development build.
 
-## Build
+## Build on GitHub (preferred for this project)
 
-Install Git and Rust stable with rustfmt and clippy. On Windows, install Visual
+Local editing needs no Rust, C++ tools or extra Node installation. Push this
+project to GitHub and open **Actions → Build and test Paradox**. The workflow
+builds and tests on GitHub's Windows, Linux and macOS machines. After a successful
+run, download the matching `paradox-Windows-X64`, `paradox-Linux-X64` or macOS
+artifact from that run. Extract it and run the binary locally with Git on PATH.
+The macOS runner architecture is shown in the artifact name.
+
+Artifacts expire after seven days. The workflow supports manual runs as well as
+pushes and pull requests. GitHub Actions availability and billing depend on your
+repository and account; no paid build service has been enabled by this project.
+
+## Optional local build
+
+For contributors who choose to compile locally, install Git and Rust stable with
+rustfmt and clippy. On Windows, install Visual
 Studio C++ Build Tools with the Windows SDK. Node.js LTS is required when frontend
 work starts in M6. No JavaScript code is built in M1.
 

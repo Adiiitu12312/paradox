@@ -8,9 +8,14 @@ fn median(values: &mut [Duration]) -> Duration {
 
 fn elapsed(exe: &str, root: &std::path::Path, args: &[&str]) -> Duration {
     let started = Instant::now();
-    let status = Command::new(exe).args(args).current_dir(root)
-        .stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null())
-        .status().unwrap();
+    let status = Command::new(exe)
+        .args(args)
+        .current_dir(root)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .unwrap();
     assert!(status.success());
     started.elapsed()
 }
@@ -20,7 +25,14 @@ fn elapsed(exe: &str, root: &std::path::Path, args: &[&str]) -> Duration {
 #[ignore = "release-only performance gate: cargo test --release --test performance -- --ignored --nocapture"]
 fn passthrough_overhead_below_five_ms() {
     let root = tempfile::tempdir().unwrap();
-    assert!(Command::new("git").args(["init", "-q"]).current_dir(root.path()).status().unwrap().success());
+    assert!(
+        Command::new("git")
+            .args(["init", "-q"])
+            .current_dir(root.path())
+            .status()
+            .unwrap()
+            .success()
+    );
     for args in [&["--version"][..], &["status", "--porcelain=v2", "-z"]] {
         let mut direct = Vec::new();
         let mut wrapped = Vec::new();
@@ -31,7 +43,10 @@ fn passthrough_overhead_below_five_ms() {
         // Alternate ordering to reduce bias from scheduling and filesystem caches.
         for n in 0..101 {
             let (a, b) = if n % 2 == 0 {
-                (elapsed("git", root.path(), args), elapsed(env!("CARGO_BIN_EXE_paradox"), root.path(), args))
+                (
+                    elapsed("git", root.path(), args),
+                    elapsed(env!("CARGO_BIN_EXE_paradox"), root.path(), args),
+                )
             } else {
                 let b = elapsed(env!("CARGO_BIN_EXE_paradox"), root.path(), args);
                 (elapsed("git", root.path(), args), b)
@@ -42,7 +57,12 @@ fn passthrough_overhead_below_five_ms() {
         let git = median(&mut direct);
         let paradox = median(&mut wrapped);
         let overhead = paradox.saturating_sub(git);
-        println!("{args:?}: git median={git:?}, paradox median={paradox:?}, overhead={overhead:?}, n=101");
-        assert!(overhead < Duration::from_millis(5), "pass-through overhead {overhead:?} exceeds 5 ms");
+        println!(
+            "{args:?}: git median={git:?}, paradox median={paradox:?}, overhead={overhead:?}, n=101"
+        );
+        assert!(
+            overhead < Duration::from_millis(5),
+            "pass-through overhead {overhead:?} exceeds 5 ms"
+        );
     }
 }

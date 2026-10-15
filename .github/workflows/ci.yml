@@ -1,4 +1,4 @@
-name: Rust quality gates
+name: Build and test Paradox
 on: [push, pull_request, workflow_dispatch]
 permissions:
   contents: read
@@ -19,6 +19,15 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace --locked
       - run: cargo test --release --test performance --locked -- --ignored --nocapture
+      - run: cargo build --release --locked -p paradox-cli
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paradox-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            target/release/paradox
+            target/release/paradox.exe
+          if-no-files-found: error
+          retention-days: 7
   audit:
     runs-on: ubuntu-latest
     steps:
