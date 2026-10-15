@@ -106,7 +106,7 @@ pub fn strip_staged(repo: &Repo) -> Result<usize> {
     let path = index_path(repo)?;
     crate::blob::reject_link(&path)?;
     let lock_path = PathBuf::from(format!("{}.lock", path.display()));
-    let mut lock = OpenOptions::new()
+    let lock = OpenOptions::new()
         .write(true)
         .create_new(true)
         .open(&lock_path)
@@ -184,24 +184,26 @@ pub fn strip_staged(repo: &Repo) -> Result<usize> {
         }
         ensure!(update.wait()?.success(), "could not stage stripped content");
         crate::fault("before_strip_index_replace");
+        // update-index replaced the pathname; the original tempfile handle
+        // still refers to its previous inode. Sync the updated index itself.
+        let updated = OpenOptions::new().read(true).write(true).open(temporary.path())?;
         if let Ok(meta) = fs::metadata(&path) {
-            lock.set_permissions(meta.permissions())?;
+            updated.set_permissions(meta.permissions())?;
         }
-        std::io::copy(&mut fs::File::open(temporary.path())?, &mut lock)?;
-        lock.sync_all()?;
-        drop(lock);
+        updated.sync_all()?;
+        drop(updated);
         // tempfile's persist uses atomic replacement on Windows as well as Unix.
-        tempfile::TempPath::try_from_path(&lock_path)?
+        temporary.into_temp_path()
             .persist(&path)
             .map_err(|e| e.error)?;
         #[cfg(unix)]
         fs::File::open(parent)?.sync_all()?;
         Ok(count)
     })();
-    // On a failure the real index was never replaced. Only remove our own lock.
-    if !matches!(result, Ok(count) if count > 0) {
-        let _ = fs::remove_file(&lock_path);
-    }
+    // Keep our lock pathname occupied through replacement and directory fsync.
+    // Cleanup cannot unlink a lock acquired by a following Git operation.
+    drop(lock);
+    let _ = fs::remove_file(&lock_path);
     result
 }
 

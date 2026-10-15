@@ -166,7 +166,7 @@ impl Repo {
                 let alias = input
                     .ancestors()
                     .skip(1)
-                    .find(|ancestor| std::fs::canonicalize(ancestor).is_ok_and(|p| p == canonical))
+                    .filter(|ancestor| std::fs::canonicalize(ancestor).is_ok_and(|p| p == canonical)).last()
                     .context("file is outside this working tree")?;
                 input.strip_prefix(alias)?.to_path_buf()
             }
