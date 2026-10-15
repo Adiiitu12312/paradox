@@ -380,7 +380,10 @@ fn bulk_promotes_previously_settled_watcher_saves_and_keeps_latest_content() {
     }
     let burst_elapsed = burst_started.elapsed();
     println!("bulk input: 51 changed paths in {burst_elapsed:?}");
-    assert!(burst_elapsed < Duration::from_secs(2), "bulk fixture must generate its 51 changes within two seconds: {burst_elapsed:?}");
+    assert!(
+        burst_elapsed < Duration::from_secs(2),
+        "bulk fixture must generate its 51 changes within two seconds: {burst_elapsed:?}"
+    );
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         let current = store(root);
