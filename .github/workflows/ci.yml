@@ -69,7 +69,8 @@ jobs:
       - run: cargo install cargo-audit --locked
       - run: cargo audit
   watch-footprint:
-    needs: test
+    # Separate runners keep the ten-minute idle measurement independent of
+    # functional/performance load. All jobs remain required for acceptance.
     strategy:
       fail-fast: false
       matrix:

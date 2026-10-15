@@ -1,0 +1,6 @@
+# Production release binaries; OS-native RSS and CPU after 600 seconds idle.
+# Preliminary rows precede the final 300 ms ordinary-save correction; they do not close M4.5.
+os,source,run_id,tracked_files,idle_seconds,rss_bytes,cpu_percent,rss_limit_bytes,cpu_limit_percent,acceptance
+linux,935e5ac,38715400295,50000,600.002,13103104,0.000000,20000000,0.1,preliminary
+macos,935e5ac,38715400295,50000,600.040,18382848,0.000000,20000000,0.1,preliminary
+windows,935e5ac,38715400295,50000,600.278,10174464,0.015618,20000000,0.1,preliminary

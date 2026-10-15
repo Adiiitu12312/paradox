@@ -1,0 +1,63 @@
+name: Diagnose macOS startup (non-gating)
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  startup:
+    runs-on: macos-15
+    timeout-minutes: 25
+    env:
+      CARGO_BUILD_TARGET: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - name: Build current O3 release
+        run: |
+          mkdir -p startup-candidates startup-diagnostics
+          rustc --version > startup-diagnostics/tool-versions.txt
+          cargo --version >> startup-diagnostics/tool-versions.txt
+          git --version >> startup-diagnostics/tool-versions.txt
+          sw_vers >> startup-diagnostics/tool-versions.txt
+          cargo build --release --locked -p paradox-cli
+          cp target/aarch64-apple-darwin/release/paradox startup-candidates/O3
+      - name: Build bare Rust exec-only diagnostic control
+        if: ${{ !cancelled() }}
+        run: |
+          cat > startup-diagnostics/exec-only.rs <<'RS'
+          use std::os::unix::process::CommandExt;
+          fn main() {
+              let error = std::process::Command::new("git")
+                  .args(std::env::args_os().skip(1)).exec();
+              eprintln!("{error}");
+              std::process::exit(127);
+          }
+          RS
+          rustc startup-diagnostics/exec-only.rs --edition=2024 -C opt-level=3 -C lto=fat -C codegen-units=1 -C panic=abort -C strip=symbols -o startup-candidates/ExecOnly
+      - name: Build Os comparison
+        if: ${{ !cancelled() }}
+        run: |
+          cargo build --release --locked -p paradox-cli --config 'profile.release.opt-level="s"'
+          cp target/aarch64-apple-darwin/release/paradox startup-candidates/Os
+      - name: Build Oz comparison
+        if: ${{ !cancelled() }}
+        run: |
+          cargo build --release --locked -p paradox-cli --config 'profile.release.opt-level="z"'
+          cp target/aarch64-apple-darwin/release/paradox startup-candidates/Oz
+      - name: Compare all variants on the same host
+        if: ${{ !cancelled() }}
+        run: >-
+          python3 scripts/diagnose_macos_startup.py
+          --candidate O3="$PWD/startup-candidates/O3"
+          --candidate Os="$PWD/startup-candidates/Os"
+          --candidate Oz="$PWD/startup-candidates/Oz"
+          --candidate ExecOnly="$PWD/startup-candidates/ExecOnly"
+          --output "$PWD/startup-diagnostics"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-startup-diagnostics
+          path: startup-diagnostics
+          retention-days: 7
