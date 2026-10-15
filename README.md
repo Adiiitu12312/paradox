@@ -5,6 +5,7 @@ Git remains the source of truth; every Git operation uses the installed Git bina
 
 **Development status: M1 accepted; M2 loop storage and capture are in progress.**
 See the [M1 verification report](docs/milestones/M1.md) for measured results.
+The [M2 progress report](docs/milestones/M2.md) records capture tests and timing gates.
 This build implements the dispatcher and explicit loop capture. M2 is awaiting
 all-platform performance acceptance. Automatic capture, auto-staging commits and
 the UI arrive later. Do not alias `git` to this development build.
