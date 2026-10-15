@@ -57,9 +57,9 @@ W8. Automatic capture: after `paradox init`, saving a tracked file in VS Code/Cu
 
 ## 6. ENVIRONMENT SETUP (do this first)
 
-The accepted development workflow edits locally and builds/tests on GitHub Actions using Git and `gh`. Do not install local Rust/C++ build tools or change the existing local Node version. M1 setup is already finished and must not be restarted.
+The accepted development workflow edits locally and builds/tests Rust on GitHub Actions using Git and `gh`. Keep the existing local Node version unchanged. When UI work starts, develop and build the frontend locally with the existing Node/npm and test it in a local browser. A minimal local Rust compilation setup is authorized only if the UI actually needs it; do not install the large C++/Windows SDK toolchain. M1 setup is already finished and must not be restarted.
 - Hosted runners provide Rust stable, cargo, rustfmt and clippy, plus native compiler prerequisites (MSVC on Windows, Xcode tools on macOS, build tools/pkg-config on Linux).
-- Hosted Node.js LTS builds the frontend when UI work begins.
+- Existing local Node/npm builds the frontend when UI work begins, with local browser testing. Hosted CI still runs the required cross-platform and frontend verification gates; it is not the primary frontend development/build environment.
 - Verify and record hosted tool versions; local Git and gh must be available.
 - Create throwaway test repositories OUTSIDE the project directory and do ALL Paradox testing there, including smoke tests of downloaded binaries. Never run Paradox against real repositories during development.
 
@@ -220,4 +220,4 @@ or locking. Keep fat LTO, one codegen unit, abort-on-panic and static Windows CR
 The M4 Run-on-Save entry must use `isAsync: true`. Latest watcher/message/principle
 amendments supersede older text. Close M2 after validation and continue.
 
-Build and test on GitHub Actions, using Git and gh. Do not install local Rust/C++ build tools or change system Node. Use aditya raj / Adiiitu12312 / en3my20@gmail.com for project commits. M1 accepts the Windows G3 timing exception described above. The stored observation allows 50% plus 1 ms scheduling variance, never above the OS limit. The session-only watcher is now required at M4.5 (after M4, before M5), replacing the earlier optional post-M9 proposal. Milestone order is M1, M2, M3, M4, M4.5, M5, M6, M7, M8, M9. Stop and report at each boundary. Finished work is not restarted.
+Build and test Rust on GitHub Actions, using Git and gh. UI development and Node/npm builds run locally with browser testing, using the existing Node version. A minimal local Rust setup is permitted only if UI work actually needs it; the large C++/Windows SDK install remains excluded. Use aditya raj / Adiiitu12312 / en3my20@gmail.com for project commits. M1 accepts the Windows G3 timing exception described above. The stored observation allows 50% plus 1 ms scheduling variance, never above the OS limit. The session-only watcher is now required at M4.5 (after M4, before M5), replacing the earlier optional post-M9 proposal. Milestone order is M1, M2, M3, M4, M4.5, M5, M6, M7, M8, M9. Stop and report at each boundary. Finished work is not restarted.

@@ -22,6 +22,11 @@ run, download the matching `paradox-Windows-X64`, `paradox-Linux-X64` or macOS
 artifact from that run. Extract it and run the binary locally with Git on PATH.
 The macOS runner architecture is shown in the artifact name.
 
+When UI work starts in M6, frontend development/builds use the owner's existing
+local Node/npm and local browser testing. The local Node version stays unchanged.
+Rust builds remain hosted; a minimal local Rust setup is permitted only if UI
+work actually needs it. No large C++/Windows SDK installation is planned.
+
 Artifacts expire after seven days. The workflow supports manual runs as well as
 pushes and pull requests. GitHub Actions availability and billing depend on your
 repository and account; no paid build service has been enabled by this project.
@@ -34,8 +39,9 @@ failed; it does not mean the milestone's performance target passed.
 
 For contributors who choose to compile locally, install Git and Rust stable with
 rustfmt and clippy. On Windows, install Visual
-Studio C++ Build Tools with the Windows SDK. Node.js LTS is required when frontend
-work starts in M6. No JavaScript code is built in M1.
+Studio C++ Build Tools with the Windows SDK. Node.js is required when frontend
+work starts in M6; the owner uses the existing local Node/npm installation.
+The current CLI milestones do not build JavaScript.
 
 ```text
 cargo build --release
