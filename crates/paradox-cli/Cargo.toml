@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+fault-injection = ["paradox-core/fault-injection"]
+
 [[bin]]
 name = "paradox"
 path = "src/main.rs"

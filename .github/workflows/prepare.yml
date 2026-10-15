@@ -1,0 +1,20 @@
+name: Prepare Rust formatting and lockfile
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo generate-lockfile
+      - run: cargo fmt --all
+      - run: git diff --binary > preparation.patch
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rust-preparation
+          path: preparation.patch
+          retention-days: 1

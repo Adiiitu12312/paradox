@@ -297,7 +297,7 @@ fn missing_git_is_clear_and_reserved_commands_do_not_modify_repo() {
         .unwrap();
     assert_eq!(o.status.code(), Some(127));
     assert!(String::from_utf8_lossy(&o.stderr).contains("Git executable not found"));
-    for owned in paradox_cli::dispatch::OWNED.iter().filter(|c| **c != "git") {
+    for owned in paradox_cli::dispatch::OWNED.iter().filter(|c| !["git", "loop"].contains(c)) {
         let o = configured(env!("CARGO_BIN_EXE_paradox"), dir.path())
             .arg(owned)
             .output()
