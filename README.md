@@ -5,9 +5,9 @@ Git remains the source of truth; every Git operation uses the installed Git bina
 
 **Development status: M1 accepted; M2 loop storage and capture are in progress.**
 See the [M1 verification report](docs/milestones/M1.md) for measured results.
-This build implements the workspace and
-dispatcher. Loop storage, automatic capture, auto-staging commits and the UI are
-scheduled for later milestones. Do not alias `git` to this development build.
+This build implements the dispatcher and explicit loop capture. M2 is awaiting
+all-platform performance acceptance. Automatic capture, auto-staging commits and
+the UI arrive later. Do not alias `git` to this development build.
 
 ## Build on GitHub (preferred for this project)
 
@@ -113,6 +113,7 @@ cargo fmt --all --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace --locked
 cargo test --release --test performance --locked -- --ignored --nocapture
+cargo test --release --test capture_performance --locked -- --ignored --nocapture
 cargo audit
 ```
 

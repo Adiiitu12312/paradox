@@ -88,7 +88,7 @@ Config: .paradox/config.toml with defaults: size_limit_bytes=2097152, store_cap_
 ## 8. THE DISPATCHER (get this exactly right)
 
 - Parse argv the way Git does: skip Git global options that come before the subcommand (`-C <path>`, `-c <k=v>`, `--git-dir=`, `--work-tree=`, `--namespace=`, `--no-pager`, `-p/--paginate`, `--bare`, `--no-replace-objects`, `--exec-path`, `--html-path`, `--version`, `--help`, etc.) to find the real subcommand.
-- Paradox-owned subcommands: `commit`, `init`, `ui`, `git`, `loop`, `loops`, `compare`, `rewind`, `timeline`, `pin`, `unpin`, `track`, `untrack`. Handle these. For anything else, execute `git` with the ORIGINAL arguments untouched.
+- Paradox-owned subcommands: `commit`, `init`, `ui`, `git`, `loop`, `loops`, `compare`, `rewind`, `timeline`, `pin`, `unpin`, `track`, `untrack`, `watch` (M4.5). Handle these as their milestones arrive. For anything else, execute `git` with the ORIGINAL arguments untouched.
 - Pass-through behavior: identical stdin/stdout/stderr, exit code, colors, pager, TTY detection, signals (Ctrl+C), and environment. On Unix use exec (replace the process). On Windows spawn with inherited handles and forward the exit code.
 - `paradox git <args>` always forces pure pass-through (even for `commit` and `init`).
 - `paradox --help` documents the Paradox additions and states that everything else is Git.

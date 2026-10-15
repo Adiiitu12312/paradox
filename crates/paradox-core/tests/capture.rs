@@ -100,6 +100,30 @@ fn saves_messages_deduplicates_and_uses_stat_cache() {
 }
 
 #[test]
+fn closed_comment_messages_are_saved_whole_and_become_stale() {
+    let temp = fixture();
+    for (path, line) in [
+        ("style.css", "/*> adjust spacing */"),
+        ("page.html", "<!--> adjust layout -->"),
+        ("query.sql", "-- > adjust query"),
+    ] {
+        let bytes = format!("{line}\r\nfirst\r\n");
+        fs::write(temp.path().join(path), &bytes).unwrap();
+        git(temp.path(), &["add", path]);
+        let mut store = open(temp.path());
+        assert_eq!(store.capture(&[PathBuf::from(path)]).unwrap().saved, 1);
+        let loops = store.loops(path).unwrap();
+        assert!(!loops[0].auto_label);
+        assert_eq!(store.blobs.get(&loops[0].blob_hash).unwrap(), bytes.as_bytes());
+        let changed = format!("{line}\r\nsecond changed\r\n");
+        fs::write(temp.path().join(path), &changed).unwrap();
+        assert_eq!(store.capture(&[PathBuf::from(path)]).unwrap().saved, 1);
+        assert!(store.loops(path).unwrap()[0].auto_label);
+        assert_eq!(fs::read(temp.path().join(path)).unwrap(), changed.as_bytes());
+    }
+}
+
+#[test]
 fn ignores_untracked_directories_secrets_binary_large_and_links() {
     let temp = fixture();
     for (name, bytes) in [
