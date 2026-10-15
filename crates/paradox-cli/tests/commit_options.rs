@@ -52,8 +52,21 @@ fn fixture() -> tempfile::TempDir {
 #[test]
 fn nul_pathspec_stdin_is_available_to_both_staging_and_partial_commit() {
     let variants: &[&[&str]] = &[
-        &["commit", "--pathspec-from-file=-", "--pathspec-file-nul", "-m", "stdin selection"],
-        &["commit", "--pathspec-from-file", "-", "--pathspec-file-nul", "-m", "stdin selection"],
+        &[
+            "commit",
+            "--pathspec-from-file=-",
+            "--pathspec-file-nul",
+            "-m",
+            "stdin selection",
+        ],
+        &[
+            "commit",
+            "--pathspec-from-file",
+            "-",
+            "--pathspec-file-nul",
+            "-m",
+            "stdin selection",
+        ],
     ];
     for args in variants {
         let temp = fixture();
@@ -71,13 +84,30 @@ fn nul_pathspec_stdin_is_available_to_both_staging_and_partial_commit() {
             .spawn()
             .unwrap();
         // Closing this pipe makes a second attempt to consume stdin see EOF.
-        child.stdin.take().unwrap().write_all(b"selected file.ts\0").unwrap();
+        child
+            .stdin
+            .take()
+            .unwrap()
+            .write_all(b"selected file.ts\0")
+            .unwrap();
         ok(child.wait_with_output().unwrap());
-        assert_eq!(git(root, &["show", "HEAD:selected file.ts"]), "selected change\r\n");
+        assert_eq!(
+            git(root, &["show", "HEAD:selected file.ts"]),
+            "selected change\r\n"
+        );
         assert_eq!(git(root, &["show", "HEAD:b.ts"]), "base b.ts\n");
         assert_eq!(git(root, &["show", ":b.ts"]), unrelated);
-        assert_eq!(git(root, &["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]), "selected file.ts\n");
-        assert_eq!(fs::read(root.join("selected file.ts")).unwrap(), selected.as_bytes());
+        assert_eq!(
+            git(
+                root,
+                &["diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD"]
+            ),
+            "selected file.ts\n"
+        );
+        assert_eq!(
+            fs::read(root.join("selected file.ts")).unwrap(),
+            selected.as_bytes()
+        );
         assert_eq!(fs::read(root.join("b.ts")).unwrap(), unrelated.as_bytes());
     }
 }

@@ -15,7 +15,13 @@ fn index_path(repo: &Repo) -> Result<PathBuf> {
 
 /// Stream the body through Git; memory is bounded by two permitted header lines.
 fn stripped_blob(repo: &Repo, path: &Path, oid: &str) -> Result<Option<String>> {
-    if path.extension().and_then(|s| s.to_str()).is_some_and(|s| s.eq_ignore_ascii_case("json")) { return Ok(None); }
+    if path
+        .extension()
+        .and_then(|s| s.to_str())
+        .is_some_and(|s| s.eq_ignore_ascii_case("json"))
+    {
+        return Ok(None);
+    }
     let mut source = repo
         .command(&["cat-file", "blob", oid])
         .stdout(Stdio::piped())
@@ -37,7 +43,8 @@ fn stripped_blob(repo: &Repo, path: &Path, oid: &str) -> Result<Option<String>> 
                     b";>",
                     b"%>",
                     b"/*>",
-                    b"<!-->", b"#!",
+                    b"<!-->",
+                    b"#!",
                 ]
                 .iter()
                 .any(|p| value.starts_with(p));
