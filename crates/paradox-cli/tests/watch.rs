@@ -553,11 +553,7 @@ fn many_changes_spread_outside_two_second_window_remain_ordinary_saves() {
     let started = Instant::now();
     for i in 0..51 {
         let path = format!("src/{i}.ts");
-        fs::write(
-            root.join(&path),
-            "//> ordinary sequential save\nchanged\n",
-        )
-        .unwrap();
+        fs::write(root.join(&path), "//> ordinary sequential save\nchanged\n").unwrap();
         // A native callback and durable capture acknowledge each save before
         // the next path changes. Fixed sleeps cannot establish that ordering
         // when native delivery or the shared CI disk is busy with bulk tests.
@@ -569,17 +565,27 @@ fn many_changes_spread_outside_two_second_window_remain_ordinary_saves() {
             let rows = current.loops(&path).unwrap();
             if !rows.is_empty() {
                 assert_eq!(rows.len(), 1, "unexpected versions for {path}");
-                assert_eq!(rows[0].kind, "save", "slow sequential save became bulk: {path}");
+                assert_eq!(
+                    rows[0].kind, "save",
+                    "slow sequential save became bulk: {path}"
+                );
                 assert_eq!(rows[0].message, "ordinary sequential save");
-                assert_eq!(current.blobs.get(&rows[0].blob_hash).unwrap(), b"//> ordinary sequential save\nchanged\n");
+                assert_eq!(
+                    current.blobs.get(&rows[0].blob_hash).unwrap(),
+                    b"//> ordinary sequential save\nchanged\n"
+                );
                 break;
             }
-            let total: i64 = current.index.query_row("SELECT COUNT(*) FROM loops", [], |r| r.get(0)).unwrap();
+            let total: i64 = current
+                .index
+                .query_row("SELECT COUNT(*) FROM loops", [], |r| r.get(0))
+                .unwrap();
             drop(current);
             assert!(
                 Instant::now() < deadline,
                 "watch did not acknowledge {path}; captured={total}, elapsed={:?}, status={:?}, log={}, stderr={}",
-                started.elapsed(), watch.child.try_wait().unwrap(),
+                started.elapsed(),
+                watch.child.try_wait().unwrap(),
                 fs::read_to_string(root.join(".paradox/log")).unwrap_or_default(),
                 fs::read_to_string(root.join(".watch-stderr")).unwrap_or_default()
             );
