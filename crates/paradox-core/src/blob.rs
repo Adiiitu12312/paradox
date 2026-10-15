@@ -38,6 +38,10 @@ pub(crate) fn reject_link(path: &Path) -> Result<()> {
 }
 
 pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
+    atomic_write_file(path, bytes).map(|_| ())
+}
+
+fn atomic_write_file(path: &Path, bytes: &[u8]) -> Result<File> {
     let parent = path.parent().context("missing parent directory")?;
     directory(parent)?;
     reject_link(path)?;
@@ -52,10 +56,10 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     crate::fault("during_blob_write");
     temp.write_all(&bytes[middle..])?;
     temp.as_file().sync_all()?;
-    temp.persist(path).map_err(|e| e.error)?;
+    let file = temp.persist(path).map_err(|e| e.error)?;
     #[cfg(unix)]
     File::open(parent)?.sync_all()?;
-    Ok(())
+    Ok(file)
 }
 
 impl LocalStore {
@@ -92,13 +96,13 @@ impl BlobStore for LocalStore {
         );
         let path = self.path(hash)?;
         reject_link(&path)?;
-        if !path.exists() {
+        let file = if !path.exists() {
             let compressed = zstd::stream::encode_all(bytes, 3)?;
-            atomic_write(&path, &compressed)?;
+            atomic_write_file(&path, &compressed)?
         } else {
             let _ = self.get(hash)?;
-        }
-        let file = File::open(path)?;
+            File::open(path)?
+        };
         let logical = file.metadata()?.len();
         let allocated = fs2::FileExt::allocated_size(&file)
             .unwrap_or(logical.div_ceil(4096).saturating_mul(4096));
