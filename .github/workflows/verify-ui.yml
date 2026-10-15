@@ -1,0 +1,68 @@
+name: Verify browser UI against an existing build
+on:
+  workflow_dispatch:
+    inputs:
+      build_run:
+        description: Build workflow containing the exact native release artifacts
+        required: true
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  browser:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: paradox-Linux-X64
+          - os: macos-15
+            artifact: paradox-macOS-ARM64
+          - os: windows-latest
+            artifact: paradox-Windows-X64
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '26.4.0'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ui-bin
+          github-token: ${{ github.token }}
+          run-id: ${{ inputs.build_run }}
+      - if: runner.os != 'Windows'
+        run: chmod +x ui-bin/paradox
+      - name: Record exact binary and browser fixture provenance
+        env:
+          BUILD_RUN: ${{ inputs.build_run }}
+        shell: bash
+        run: |
+          mkdir ui-evidence
+          python -c 'import hashlib,json,os,pathlib; p=pathlib.Path("ui-bin")/("paradox.exe" if os.name=="nt" else "paradox"); fixture=pathlib.Path("frontend/e2e/workspace.spec.ts"); data={"build_run":os.environ["BUILD_RUN"],"fixture_source":os.environ["GITHUB_SHA"],"binary_sha256":hashlib.sha256(p.read_bytes()).hexdigest(),"fixture_sha256":hashlib.sha256(fixture.read_bytes()).hexdigest()}; pathlib.Path("ui-evidence/provenance.json").write_text(json.dumps(data,indent=2)); print(data)'
+      - run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Test the embedded UI with native Git and a disposable repository
+        shell: bash
+        working-directory: frontend
+        run: |
+          suffix=''
+          if [ "$RUNNER_OS" = Windows ]; then suffix='.exe'; fi
+          PARADOX_BIN="$GITHUB_WORKSPACE/ui-bin/paradox$suffix" PLAYWRIGHT_CHANNEL=chromium npm run test:e2e 2>&1 | tee ../ui-evidence/browser.log
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ui-evidence-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            ui-evidence/
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: error
+          retention-days: 7

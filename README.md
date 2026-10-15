@@ -30,7 +30,7 @@ run, download the matching `paradox-Windows-X64`, `paradox-Linux-X64` or macOS
 artifact from that run. Extract it and run the binary locally with Git on PATH.
 The macOS runner architecture is shown in the artifact name.
 
-When UI work starts in M6, frontend development/builds use the owner's existing
+During M6, frontend development/builds use the owner's existing
 local Node/npm and local browser testing. The local Node version stays unchanged.
 Rust builds remain hosted; a minimal local Rust setup is permitted only if UI
 work actually needs it. No large C++/Windows SDK installation is planned.
@@ -49,11 +49,15 @@ failed; it does not mean the milestone's performance target passed.
 
 For contributors who choose to compile locally, install Git and Rust stable with
 rustfmt and clippy. On Windows, install Visual
-Studio C++ Build Tools with the Windows SDK. Node.js is required when frontend
-work starts in M6; the owner uses the existing local Node/npm installation.
-The current CLI milestones do not build JavaScript.
+Studio C++ Build Tools with the Windows SDK. This is optional contributor setup;
+the owner continues to use GitHub for Rust builds. Node.js builds the embedded
+browser assets; the owner's local Node/npm installation stays unchanged.
 
 ```text
+cd frontend
+npm ci
+npm run build
+cd ..
 cargo build --release
 ```
 

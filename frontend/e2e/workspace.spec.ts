@@ -36,12 +36,15 @@ test.beforeEach(async () => {
   })
 })
 test.afterEach(async ({ context }) => {
-  await context.close()
-  if (child) {
-    try { await Promise.race([exited, new Promise((_, reject) => setTimeout(() => reject(new Error('UI process remained after last tab closed')), 8_000))]) }
-    finally { if (child.exitCode === null) child.kill(); child = undefined }
+  try {
+    await context.close()
+    if (child) {
+      try { const code = await Promise.race([exited, new Promise((_, reject) => setTimeout(() => reject(new Error('UI process remained after last tab closed')), 8_000))]); expect(code).toBe(0) }
+      finally { if (child.exitCode === null) { child.kill(); await exited }; child = undefined }
+    }
+  } finally {
+    if (root) { expect(realpathSync(root).startsWith(realpathSync(tmpdir()) + sep)).toBe(true); rmSync(root, { recursive: true, force: true }) }
   }
-  if (root) { expect(realpathSync(root).startsWith(realpathSync(tmpdir()) + sep)).toBe(true); rmSync(root, { recursive: true, force: true }) }
 })
 
 test('stages one hunk, commits only the index, strips markers, and leaves working bytes intact', async ({ page }) => {
@@ -49,7 +52,7 @@ test('stages one hunk, commits only the index, strips markers, and leaves workin
   page.on('pageerror', error => errors.push(error.message))
   await page.goto(url)
   await expect(page).toHaveURL(/\/$/)
-  await expect(page.getByText('Local session', { exact: true })).toBeVisible()
+  await expect(page.locator('.sidebar-note')).toContainText('Local session')
   await page.locator('.file-name').filter({ hasText: 'sample.ts' }).click()
   await expect(page.locator('.monaco-diff-editor')).toBeVisible()
   await page.getByText('Select hunks or lines').click()
@@ -76,7 +79,7 @@ test('missing authentication and foreign origins cannot mutate the index', async
   const response = await page.request.post(`${origin}/api/stage`, { headers: { Origin: 'https://example.invalid' }, data: { mode: 'all' } })
   expect(response.status()).toBe(403)
   expect(git('diff', '--cached')).toBe('')
-  await expect(page.getByText('Local session', { exact: true })).toBeVisible()
+  await expect(page.locator('.sidebar-note')).toContainText('Local session')
 })
 
 test('user hooks can reject a browser commit without losing the draft or working file', async ({ page }) => {
@@ -87,7 +90,7 @@ test('user hooks can reject a browser commit without losing the draft or working
   chmodSync(hook, 0o755)
   const before = git('rev-parse', 'HEAD')
   await page.goto(url)
-  await expect(page.getByText('Local session', { exact: true })).toBeVisible()
+  await expect(page.locator('.sidebar-note')).toContainText('Local session')
   await page.getByRole('button', { name: 'Stage all', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('selection staged')
   await page.getByLabel('Commit message').fill('Keep this draft')
