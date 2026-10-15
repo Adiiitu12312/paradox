@@ -17,6 +17,17 @@ pub struct LocalStore {
 }
 
 pub(crate) fn directory(path: &Path) -> Result<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            ensure!(
+                metadata.is_dir() && !metadata.file_type().is_symlink(),
+                "storage directory must be a real directory"
+            );
+            return Ok(());
+        }
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+        Err(error) => return Err(error.into()),
+    }
     fs::create_dir_all(path)?;
     ensure!(
         !fs::symlink_metadata(path)?.file_type().is_symlink(),

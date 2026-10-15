@@ -1,6 +1,6 @@
 //! Contended save handoff. Markers contain paths, never file contents.
 use crate::{
-    blob::{atomic_write, directory, reject_link},
+    blob::{atomic_write, reject_link},
     repo::Repo,
     store::LoopStore,
 };
@@ -42,7 +42,8 @@ pub fn enqueue(repo: &Repo, files: &[PathBuf]) -> Result<()> {
         selected.push(PathBuf::from(repo.relative(&path)?));
     }
     let pending = repo.store.join("pending");
-    directory(&pending)?;
+    // atomic_write creates and validates its parent; avoid doing it twice in
+    // every simultaneous publisher.
     atomic_write(
         &pending.join(format!("{}.json", unique())),
         &serde_json::to_vec(&Pending {
