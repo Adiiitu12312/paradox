@@ -80,6 +80,7 @@ fn empty_picker_and_nonterminal_failure_do_not_open_or_create_store() {
         !no_terminal.status.success(),
         "a picker requires an interactive terminal"
     );
+    assert!(String::from_utf8_lossy(&no_terminal.stderr).contains("interactive terminal"));
     assert!(
         !root.path().join(".paradox").exists(),
         "waiting or failing to prompt must not open a store"

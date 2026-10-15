@@ -167,6 +167,10 @@ fn execute(args: &[OsString], index: usize) -> Result<()> {
                 println!("No recent or uncommitted tracked files.");
                 return Ok(());
             }
+            ensure!(
+                io::stdin().is_terminal() && io::stderr().is_terminal(),
+                "timeline requires an interactive terminal"
+            );
             // Discovery never opens the store. An agent/editor must be able to
             // capture while this prompt waits for an arbitrarily long time.
             let choice =
