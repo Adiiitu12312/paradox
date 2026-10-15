@@ -200,8 +200,10 @@ impl LoopStore {
     fn cache(&self, path: &str) -> Result<Option<(i64, u64, String)>> {
         Ok(self
             .index
-            .query_row(
+            .prepare_cached(
                 "SELECT mtime_ns,size,last_hash FROM stat_cache WHERE worktree=?1 AND path=?2",
+            )?
+            .query_row(
                 params![self.repo.worktree, path],
                 |r| Ok((r.get(0)?, sql_size(r, 1)?, r.get(2)?)),
             )
@@ -209,8 +211,8 @@ impl LoopStore {
     }
 
     fn cache_write(&self, path: &str, state: (i64, u64), hash: &str) -> Result<()> {
-        self.index.execute("INSERT INTO stat_cache VALUES(?1,?2,?3,?4,?5) ON CONFLICT(worktree,path) DO UPDATE SET mtime_ns=excluded.mtime_ns,size=excluded.size,last_hash=excluded.last_hash",
-            params![self.repo.worktree,path,state.0,i64::try_from(state.1)?,hash])?;
+        self.index.prepare_cached("INSERT INTO stat_cache VALUES(?1,?2,?3,?4,?5) ON CONFLICT(worktree,path) DO UPDATE SET mtime_ns=excluded.mtime_ns,size=excluded.size,last_hash=excluded.last_hash")?
+            .execute(params![self.repo.worktree,path,state.0,i64::try_from(state.1)?,hash])?;
         Ok(())
     }
 
@@ -389,8 +391,8 @@ impl LoopStore {
             "file changed during capture; next save will retry"
         );
         let hash = blake3::hash(&bytes).to_hex().to_string();
-        let latest = self.index.query_row("SELECT blob_hash FROM loops WHERE worktree=?1 AND path=?2 ORDER BY ts DESC,id DESC LIMIT 1",
-            params![self.repo.worktree,path], |r| r.get::<_,String>(0)).optional()?;
+        let latest = self.index.prepare_cached("SELECT blob_hash FROM loops WHERE worktree=?1 AND path=?2 ORDER BY ts DESC,id DESC LIMIT 1")?
+            .query_row(params![self.repo.worktree,path], |r| r.get::<_,String>(0)).optional()?;
         if latest.as_deref() == Some(&hash) {
             self.cache_write(path, state, &hash)?;
             return Ok((false, true, false));

@@ -1,0 +1,9 @@
+# Measured medians from hosted run 38684836350, source 0689bfa; 50,000 tracked files.
+# Windows budgets accepted October 15, 2026: NTFS metadata, Defender and fsync costs.
+# Atomic blob writes, fsync, SQLite synchronous=FULL and locking remain mandatory.
+# Regression ceiling: min(OS limit, observed baseline * 1.5 + 1 ms), as for pass-through.
+# The allowance absorbs shared-runner variance; observations are never auto-raised.
+os,save_baseline_ms,scan_baseline_ms,save_limit_ms,scan_limit_ms
+linux,5.607357,159.242054,50,500
+macos,19.424792,157.821042,50,500
+windows,84.7467,629.6543,100,1000

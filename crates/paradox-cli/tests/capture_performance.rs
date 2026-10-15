@@ -8,6 +8,18 @@ use std::time::{Duration, Instant};
 #[test]
 #[ignore = "release-only 50,000-file capture performance gate"]
 fn fifty_thousand_files_single_save_and_warm_scan() {
+    let row = include_str!("../../../benchmarks/capture.csv")
+        .lines()
+        .find(|line| line.starts_with(&format!("{},", std::env::consts::OS)))
+        .expect("missing OS capture baseline");
+    let fields: Vec<_> = row.split(',').collect();
+    let save_baseline: f64 = fields[1].parse().unwrap();
+    let scan_baseline: f64 = fields[2].parse().unwrap();
+    let save_limit: f64 = fields[3].parse().unwrap();
+    let scan_limit: f64 = fields[4].parse().unwrap();
+    let save_ceiling = save_limit.min(save_baseline * 1.5 + 1.0);
+    let scan_ceiling = scan_limit.min(scan_baseline * 1.5 + 1.0);
+    println!("OS save/scan limits={save_limit}/{scan_limit} ms; baselines={save_baseline}/{scan_baseline} ms; regression ceilings={save_ceiling}/{scan_ceiling} ms");
     let root = tempfile::tempdir().unwrap();
     let git = |args: &[&str]| {
         let out = Command::new("git")
@@ -88,12 +100,12 @@ fn fifty_thousand_files_single_save_and_warm_scan() {
         saves[10]
     );
     assert!(
-        scans[2] < Duration::from_millis(500),
-        "warm stat scan exceeds 500 ms"
+        scans[2] < Duration::from_secs_f64(scan_ceiling / 1000.0),
+        "warm stat scan exceeded its stored OS regression ceiling"
     );
     assert!(
-        saves[10] < Duration::from_millis(50),
-        "single-file loop exceeds 50 ms"
+        saves[10] < Duration::from_secs_f64(save_ceiling / 1000.0),
+        "single-file loop exceeded its stored OS regression ceiling"
     );
     let store = LoopStore::open(
         Repo::discover(&[OsString::from("-C"), root.path().as_os_str().to_owned()]).unwrap(),

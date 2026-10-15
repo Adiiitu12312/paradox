@@ -122,7 +122,17 @@ Goal G3 in the [project brief](docs/PROJECT_BRIEF.md) requires under 5 ms median
 pass-through overhead on Linux/macOS and under 20 ms on Windows. Unix replaces
 the process with `exec`; Windows has no `exec` and must spawn Git and wait to
 preserve its terminal behavior and exit code. The Windows exception was accepted
-on October 15, 2026; loop capture performance targets are unchanged.
+on October 15, 2026.
+
+Capture has separate accepted budgets on 50,000 tracked files: single-file saves
+under 50 ms and warm scans under 500 ms on Linux/macOS; under 100 ms and 1 second
+on Windows. The Windows allowance accounts for NTFS metadata, Defender and fsync
+costs. Atomic blob writes, fsync, SQLite `synchronous=FULL` and repository locking
+stay enabled. These measurements do not isolate the cost of Defender separately.
+[Capture baselines](benchmarks/capture.csv) record every OS and enforce the
+smaller of its limit and its observed median plus 50% and 1 ms scheduling variance.
+Baselines never increase automatically. M4's Run-on-Save configuration will use
+`isAsync: true`, so an editor save does not wait for capture.
 
 The release test measures 101 alternating pairs after warmup for both version and
 status, on all three OSes. [Stored baselines](benchmarks/passthrough.csv) also catch
