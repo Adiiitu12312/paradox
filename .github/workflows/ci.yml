@@ -43,6 +43,8 @@ jobs:
       - run: cargo test --workspace --locked --features paradox-cli/fault-injection
       - run: cargo build --release --locked -p paradox-cli
         id: release
+      - name: Gate native graph first-page latency on 100,000 commits
+        run: cargo test --release --locked -p paradox-core --test ui_git first_graph_page_on_one_hundred_thousand_commits_is_bounded_and_fast -- --nocapture
       - name: Install hosted browser for UI integration tests
         run: npx playwright install --with-deps chromium
         working-directory: frontend

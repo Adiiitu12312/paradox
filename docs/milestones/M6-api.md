@@ -35,3 +35,5 @@ Staging selections require a working-view diff token; unstaging selections requi
 `POST /api/commit`: `{ "message": "literal commit message", "amend": false }`. Success: `{ head: "NEW_SHA", commands }`. This commits the existing index only, preserving partial staging and unrelated unstaged edits. It uses the same shared mandatory marker-strip, user-hook and purge orchestration as the CLI. Working files retain marker bytes. Failed user hooks return 422 and their output in the command log.
 
 JSON request bodies are bounded to 2 MiB. Calls that run Git or touch repository files execute in blocking workers; neither the HTTP event loop nor browser-wait/session handling owns a `LoopStore` lock.
+
+The graph uses Git's default commit ordering and preserves native parent IDs and refs. Explicit date/topological ordering eagerly traverses the full DAG before returning a bounded page: an isolated native-Git probe on 100,000 commits measured 322.2 ms with `--date-order`, 323.2 ms with `--topo-order`, and 38.7 ms with the default order. Functional pagination runs in the debug suite; the unchanged under-300-ms first-page gate runs separately against release code.

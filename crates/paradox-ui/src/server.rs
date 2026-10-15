@@ -67,9 +67,10 @@ async fn authenticate(State(app): State<App>, request: Request, next: Next) -> R
     {
         return failure(StatusCode::FORBIDDEN, "forbidden", "Invalid Origin");
     }
-    if request.method() == Method::GET && request.uri().path() == "/" {
-        if let Some(query) = request.uri().query() {
-            if query == format!("token={}", app.token) {
+    if request.method() == Method::GET && request.uri().path() == "/"
+        && let Some(query) = request.uri().query()
+        && query == format!("token={}", app.token)
+    {
                 let mut response = Redirect::to("/").into_response();
                 response.headers_mut().insert(
                     header::SET_COOKIE,
@@ -82,8 +83,6 @@ async fn authenticate(State(app): State<App>, request: Request, next: Next) -> R
                 );
                 secure_headers(&mut response);
                 return response;
-            }
-        }
     }
     let authorized = headers
         .get_all(header::COOKIE)

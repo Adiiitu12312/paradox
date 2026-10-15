@@ -1,7 +1,6 @@
 use anyhow::{Context, Result, ensure};
 use paradox_core::{repo::Repo, store::LoopStore};
 use std::ffi::OsString;
-use std::fs;
 use std::io::Read;
 use std::path::PathBuf;
 

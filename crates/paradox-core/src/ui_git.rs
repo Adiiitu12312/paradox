@@ -180,11 +180,13 @@ pub fn graph(repo: Repo, cursor: Option<&str>) -> Result<Value> {
         .context("invalid graph cursor")?;
     let mut git = Git::new(repo);
     let head = git.head()?;
+    // Native date/topological ordering walks the full DAG before yielding a
+    // bounded page. Keep Git's default order and retain every parent/ref so the
+    // browser can draw edges without making first-page cost scale with history.
     let mut commits = commit_rows(&git.checked(
         &[
             "log",
             "--all",
-            "--date-order",
             "--no-show-signature",
             "--no-notes",
             "--no-decorate",

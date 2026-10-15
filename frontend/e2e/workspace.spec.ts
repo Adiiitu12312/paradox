@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test'
 import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
-import { mkdtempSync, readFileSync, writeFileSync, rmSync, realpathSync } from 'node:fs'
+import { mkdtempSync, readFileSync, writeFileSync, rmSync, realpathSync, mkdirSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
 
@@ -77,4 +77,25 @@ test('missing authentication and foreign origins cannot mutate the index', async
   expect(response.status()).toBe(403)
   expect(git('diff', '--cached')).toBe('')
   await expect(page.getByText('Local session', { exact: true })).toBeVisible()
+})
+
+test('user hooks can reject a browser commit without losing the draft or working file', async ({ page }) => {
+  const hooks = join(root, '.git', 'no-hooks')
+  mkdirSync(hooks)
+  const hook = join(hooks, 'pre-commit')
+  writeFileSync(hook, '#!/bin/sh\necho "UI fixture hook refused commit" >&2\nexit 1\n')
+  chmodSync(hook, 0o755)
+  const before = git('rev-parse', 'HEAD')
+  await page.goto(url)
+  await expect(page.getByText('Local session', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Stage all', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('selection staged')
+  await page.getByLabel('Commit message').fill('Keep this draft')
+  await page.getByRole('button', { name: 'Commit 1 files', exact: true }).click()
+  await expect(page.getByRole('alert')).toContainText('UI fixture hook refused commit')
+  await expect(page.getByLabel('Commit message')).toHaveValue('Keep this draft')
+  expect(git('rev-parse', 'HEAD')).toBe(before)
+  expect(readFileSync(join(root, 'sample.ts'), 'utf8')).toBe(working)
+  await page.getByText('Git command log').click()
+  await expect(page.locator('.command-log')).toContainText('UI fixture hook refused commit')
 })

@@ -10,7 +10,11 @@ export class ApiError extends Error {
 export function createApi(record: (commands: GitCommand[]) => void): WorkspaceApi {
   async function request<T extends WithCommands>(path: string, options: RequestInit = {}): Promise<T> {
     const response = await fetch(`/api/${path}`, { ...options, credentials: 'same-origin' })
-    const data = await response.json().catch(() => ({ error: 'Open this workspace with paradox ui to connect.', code: 'connection_failed', commands: [] }))
+    const body = await response.text()
+    const data = (() => {
+      try { return JSON.parse(body) }
+      catch { return { error: body.trim().slice(0, 500) || `The server returned HTTP ${response.status}.`, code: 'invalid_response', commands: [] } }
+    })()
     if (Array.isArray(data.commands)) record(data.commands)
     if (!response.ok || data.error) throw new ApiError(data.error ?? 'The operation failed.', response.status, data.code ?? 'git_failed', data.commands)
     return data as T

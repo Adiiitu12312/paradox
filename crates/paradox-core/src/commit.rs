@@ -139,8 +139,7 @@ pub fn execute_commit(
     commands.push(record);
     if code == 0
         && let Ok(updated) = Repo::discover(&repo.globals)
-        && let Err(error) =
-            LoopStore::open(updated).and_then(|mut store| store.purge().map(|_| ()))
+        && let Err(error) = LoopStore::open(updated).and_then(|mut store| store.purge().map(|_| ()))
     {
         crate::store::log_at(&log, &format!("post-commit purge: {error:#}"));
     }

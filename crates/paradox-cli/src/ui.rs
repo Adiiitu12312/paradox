@@ -38,10 +38,10 @@ pub fn run(args: &[OsString], index: usize) -> anyhow::Result<i32> {
         move |ready| {
             println!("Paradox UI: {}", ready.url);
             println!("Close the browser tab or press Ctrl+C to stop.");
-            if !options.no_open {
-                if let Err(error) = open_browser(&ready.url) {
-                    eprintln!("paradox: could not open browser: {error}; open the URL above");
-                }
+            if !options.no_open
+                && let Err(error) = open_browser(&ready.url)
+            {
+                eprintln!("paradox: could not open browser: {error}; open the URL above");
             }
         },
     ))?;
