@@ -53,6 +53,8 @@ jobs:
           retention-days: 7
       - run: cargo test --release --test performance --locked -- --ignored --nocapture
       - run: cargo test --release --test capture_performance --locked -- --ignored --nocapture
+        env:
+          PARADOX_PROFILE_CAPTURE: '1'
   audit:
     runs-on: ubuntu-latest
     steps:

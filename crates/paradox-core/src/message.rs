@@ -20,7 +20,11 @@ pub fn message_line(bytes: &[u8]) -> &[u8] {
 /// Shared grammar for capture and the staged-content stripper added in M4.
 /// A closing delimiter must end the permitted line; executable tails are not markers.
 pub fn marker<'a>(path: &Path, bytes: &'a [u8]) -> Option<&'a str> {
-    if path.extension().and_then(|e| e.to_str()).is_some_and(|e| e.eq_ignore_ascii_case("json")) {
+    if path
+        .extension()
+        .and_then(|e| e.to_str())
+        .is_some_and(|e| e.eq_ignore_ascii_case("json"))
+    {
         return None;
     }
     let line = std::str::from_utf8(message_line(bytes)).ok()?;
@@ -33,8 +37,11 @@ pub fn marker<'a>(path: &Path, bytes: &'a [u8]) -> Option<&'a str> {
     let value = if let Some(rest) = line.strip_prefix("--") {
         rest.trim_start().strip_prefix('>')?
     } else {
-        ["//>", "#>", ";>", "%>"].iter().find_map(|p| line.strip_prefix(p))?
-    }.trim_start();
+        ["//>", "#>", ";>", "%>"]
+            .iter()
+            .find_map(|p| line.strip_prefix(p))?
+    }
+    .trim_start();
     Some(value)
 }
 
@@ -90,28 +97,47 @@ mod tests {
 
     #[test]
     fn closed_markers_and_spaced_sql_preserve_message_boundaries() {
-        for (path,line) in [("file.css","/*> fix ü */"), ("file.scss","/*> fix ü */"),
-            ("file.less","/*> fix ü */"), ("file.html","<!--> fix ü -->"),
-            ("file.md","<!--> fix ü -->"), ("file.vue","<!--> fix ü -->"),
-            ("file.svelte","<!--> fix ü -->"), ("file.xml","<!--> fix ü -->"),
-            ("file.sql","-- > fix ü"), ("file.sql","--> fix ü")] {
+        for (path, line) in [
+            ("file.css", "/*> fix ü */"),
+            ("file.scss", "/*> fix ü */"),
+            ("file.less", "/*> fix ü */"),
+            ("file.html", "<!--> fix ü -->"),
+            ("file.md", "<!--> fix ü -->"),
+            ("file.vue", "<!--> fix ü -->"),
+            ("file.svelte", "<!--> fix ü -->"),
+            ("file.xml", "<!--> fix ü -->"),
+            ("file.sql", "-- > fix ü"),
+            ("file.sql", "--> fix ü"),
+        ] {
             let bytes = format!("{line}\r\nbody\r\n");
-            assert_eq!(marker(Path::new(path),bytes.as_bytes()),Some("fix ü"));
-            assert_eq!(label(Path::new(path),bytes.as_bytes(),b"old"),("fix ü".into(),false));
+            assert_eq!(marker(Path::new(path), bytes.as_bytes()), Some("fix ü"));
+            assert_eq!(
+                label(Path::new(path), bytes.as_bytes(), b"old"),
+                ("fix ü".into(), false)
+            );
             let next = format!("{line}\r\nchanged\r\n");
-            assert!(label(Path::new(path),next.as_bytes(),bytes.as_bytes()).1);
+            assert!(label(Path::new(path), next.as_bytes(), bytes.as_bytes()).1);
             for first in ["#!/bin/sh", "<?php"] {
                 let bytes = format!("{first}\r\n{line}\r\nthird\n");
-                assert_eq!(marker(Path::new(path),bytes.as_bytes()),Some("fix ü"));
+                assert_eq!(marker(Path::new(path), bytes.as_bytes()), Some("fix ü"));
             }
         }
-        for line in ["/*> missing", "<!--> missing", "/*> msg */ code()", "<!--> msg --> <code>", "/*> one */ two */"] {
-            assert_eq!(marker(Path::new("file.css"),line.as_bytes()),None);
+        for line in [
+            "/*> missing",
+            "<!--> missing",
+            "/*> msg */ code()",
+            "<!--> msg --> <code>",
+            "/*> one */ two */",
+        ] {
+            assert_eq!(marker(Path::new("file.css"), line.as_bytes()), None);
         }
-        assert_eq!(marker(Path::new("file.css"),b"/*> */"),Some(""));
-        assert!(label(Path::new("file.css"),b"/*> */",b"old").1);
-        assert_eq!(marker(Path::new("file.JSON"),b"/*> no */"),None);
-        assert_eq!(marker(Path::new("file.html"),b"ordinary\n<!--> ignored -->"),None);
+        assert_eq!(marker(Path::new("file.css"), b"/*> */"), Some(""));
+        assert!(label(Path::new("file.css"), b"/*> */", b"old").1);
+        assert_eq!(marker(Path::new("file.JSON"), b"/*> no */"), None);
+        assert_eq!(
+            marker(Path::new("file.html"), b"ordinary\n<!--> ignored -->"),
+            None
+        );
     }
 
     proptest! {

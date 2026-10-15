@@ -57,11 +57,11 @@ W8. Automatic capture: after `paradox init`, saving a tracked file in VS Code/Cu
 
 ## 6. ENVIRONMENT SETUP (do this first)
 
-Detect my OS, check for and install anything missing:
-- Rust via rustup (stable toolchain with cargo, rustfmt, clippy). Windows: also MSVC C++ Build Tools. macOS: `xcode-select --install`. Linux: build-essential, pkg-config.
-- Node.js LTS (to build the UI frontend).
-- Git (must already exist; verify, and record the version).
-Verify with `rustc --version`, `cargo --version`, `node --version`, `git --version`. Create a throwaway test repository OUTSIDE the project directory and do ALL testing there. Never run Paradox against my real repositories during development.
+The accepted development workflow edits locally and builds/tests on GitHub Actions using Git and `gh`. Do not install local Rust/C++ build tools or change the existing local Node version. M1 setup is already finished and must not be restarted.
+- Hosted runners provide Rust stable, cargo, rustfmt and clippy, plus native compiler prerequisites (MSVC on Windows, Xcode tools on macOS, build tools/pkg-config on Linux).
+- Hosted Node.js LTS builds the frontend when UI work begins.
+- Verify and record hosted tool versions; local Git and gh must be available.
+- Create throwaway test repositories OUTSIDE the project directory and do ALL Paradox testing there, including smoke tests of downloaded binaries. Never run Paradox against real repositories during development.
 
 ## 7. ARCHITECTURE
 
@@ -212,5 +212,3 @@ M9. Hardening: cross-platform CI green, README (install, quickstart, command ref
 ## Accepted amendments (October 15, 2026)
 
 Build and test on GitHub Actions, using Git and gh. Do not install local Rust/C++ build tools or change system Node. Use aditya raj / Adiiitu12312 / en3my20@gmail.com for project commits. M1 accepts the Windows G3 timing exception described above. The stored observation allows 50% plus 1 ms scheduling variance, never above the OS limit. The session-only watcher is now required at M4.5 (after M4, before M5), replacing the earlier optional post-M9 proposal. Milestone order is M1, M2, M3, M4, M4.5, M5, M6, M7, M8, M9. Stop and report at each boundary. Finished work is not restarted.
-
-

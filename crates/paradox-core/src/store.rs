@@ -217,6 +217,8 @@ impl LoopStore {
     /// Explicit files are checked against Git using literal pathspecs; no tree scan.
     /// An empty selection scans only Git's tracked set, never new directories.
     pub fn capture(&mut self, inputs: &[std::path::PathBuf]) -> Result<CaptureReport> {
+        let started = std::time::Instant::now();
+        let profile = std::env::var_os("PARADOX_PROFILE_CAPTURE").is_some();
         self.checked_dirs.clear();
         let selected = inputs
             .iter()
@@ -252,8 +254,14 @@ impl LoopStore {
             }
         }
         tracked.sort();
+        if profile {
+            eprintln!("capture profile: tracked {:?}", started.elapsed());
+        }
         let all = inputs.is_empty();
         let dirty = if all { Some(self.repo.dirty()?) } else { None };
+        if profile {
+            eprintln!("capture profile: dirty {:?}", started.elapsed());
+        }
         let cache_map: Option<HashMap<String, (i64, u64, String)>> = if all {
             Some(
                 self.index
@@ -303,12 +311,18 @@ impl LoopStore {
             }
             self.index.execute_batch("COMMIT")?;
         }
+        if profile {
+            eprintln!("capture profile: files {:?}", started.elapsed());
+        }
         // Bound the WAL after each short-lived command. Blob bytes are durable
         // before references are committed; orphan cleanup can always run later.
         self.index
             .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
         if self.bytes()? > self.config.store_cap_bytes {
             self.gc()?;
+        }
+        if profile {
+            eprintln!("capture profile: durable {:?}", started.elapsed());
         }
         Ok(report)
     }
@@ -438,7 +452,7 @@ impl LoopStore {
             .filter_map(|p| fs::metadata(self.repo.store.join(p)).ok())
             .map(|m| m.len())
             .sum();
-        Ok(pages.saturating_sub(free) * page_size + other)
+        Ok(pages.saturating_sub(free) * page_size + other + 8192)
     }
 
     pub fn bytes(&self) -> Result<u64> {

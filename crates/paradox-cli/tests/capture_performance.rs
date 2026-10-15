@@ -69,7 +69,11 @@ fn fifty_thousand_files_single_save_and_warm_scan() {
                 .args(["loop", "files-000/file-000.ts"])
                 .current_dir(root.path())
                 .stdout(Stdio::null())
-                .stderr(Stdio::null())
+                .stderr(if n == 8 {
+                    Stdio::inherit()
+                } else {
+                    Stdio::null()
+                })
                 .status()
                 .unwrap()
                 .success()

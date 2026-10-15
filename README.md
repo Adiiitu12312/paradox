@@ -77,6 +77,30 @@ Help requests for Git's `commit` and `init` still go to Git without doing setup.
 File-first commit routing currently recognizes explicit path syntax (a dot or
 path separator); its execution is reserved for M4.
 
+## Loop capture (M2)
+
+```text
+paradox loop src/file.ts
+paradox loop
+paradox loop --stats
+paradox loop --gc
+```
+
+Explicit saves only consider tracked paths. A scan with no file arguments examines
+the tracked set and records changed files; untracked directories are not traversed.
+Secret-denylisted paths, binary files, symlinks and files above the size limit are
+skipped. Repeated identical content is deduped. Save errors are nonfatal and go to
+the bounded `.paradox/log`.
+
+Messages use `//>`, `#>`, `-->`, `-- >`, `;>`, `%>`, `/*> message */` or
+`<!--> message -->` on the first line. Shebang and standalone `<?php` files use
+line two. Closed markers must end on that line; code after a closing delimiter
+is not a marker. An unchanged message line gets an automatic diff label instead.
+JSON always gets an automatic label. No working file is edited by capture.
+
+Commit-time marker stripping and automatic editor/AI hook setup arrive in M4;
+this development build does not install them. `watch` arrives in M4.5.
+
 ## Verification
 
 All tests that execute Paradox create OS temporary repositories **outside** this

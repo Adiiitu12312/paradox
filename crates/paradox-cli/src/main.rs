@@ -15,6 +15,8 @@ struct LoopArgs {
 }
 
 fn capture(args: &[OsString], index: usize) {
+    let started = std::time::Instant::now();
+    let profile = std::env::var_os("PARADOX_PROFILE_CAPTURE").is_some();
     // Editor and AI save commands must never fail their caller.
     let options = match LoopArgs::try_parse_from(&args[index..]) {
         Ok(options) => options,
@@ -31,8 +33,14 @@ fn capture(args: &[OsString], index: usize) {
         }
     };
     let log_root = repo.store.clone();
+    if profile {
+        eprintln!("capture profile: discovery {:?}", started.elapsed());
+    }
     let result = (|| -> Result<(), Box<dyn std::error::Error>> {
         let mut store = paradox_core::store::LoopStore::open(repo)?;
+        if profile {
+            eprintln!("capture profile: opened {:?}", started.elapsed());
+        }
         if !options.files.is_empty() || (!options.gc && !options.stats) {
             let _ = store.capture(&options.files)?;
         }
@@ -57,6 +65,9 @@ fn capture(args: &[OsString], index: usize) {
         }
         Ok(())
     })();
+    if profile {
+        eprintln!("capture profile: finished {:?}", started.elapsed());
+    }
     if let Err(error) = result {
         paradox_core::store::log_at(&log_root, &format!("{error:#}"));
     }

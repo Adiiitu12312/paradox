@@ -98,7 +98,13 @@ impl BlobStore for LocalStore {
         } else {
             let _ = self.get(hash)?;
         }
-        Ok(fs::metadata(path)?.len())
+        let file = File::open(path)?;
+        let logical = file.metadata()?.len();
+        let allocated = fs2::FileExt::allocated_size(&file)
+            .unwrap_or(logical.div_ceil(4096).saturating_mul(4096));
+        // Charge at least a block plus a directory allowance per object. Tiny
+        // compressed versions must not evade the cap through allocation slack.
+        Ok(allocated.max(logical).max(4096).saturating_add(4096))
     }
 
     fn get(&self, hash: &str) -> Result<Vec<u8>> {
