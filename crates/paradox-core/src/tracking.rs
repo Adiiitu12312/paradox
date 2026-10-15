@@ -133,7 +133,11 @@ impl LoopStore {
         ensure!(!inputs.is_empty(), "provide at least one path");
         let selected = inputs
             .iter()
-            .map(|path| self.repo.relative(path))
+            .map(|path| {
+                if path == &self.repo.root || (path == &PathBuf::from(".") && self.repo.prefix.as_os_str().is_empty()) {
+                    Ok(".".to_string())
+                } else { self.repo.relative(path) }
+            })
             .collect::<Result<Vec<_>>>()?;
         let mut list = self.repo.track_list()?;
         let mut paths: HashSet<String> = list
@@ -147,7 +151,7 @@ impl LoopStore {
             paths.retain(|path| {
                 !selected
                     .iter()
-                    .any(|input| path == input || path.starts_with(&format!("{input}/")))
+                    .any(|input| input == "." || path == input || path.starts_with(&format!("{input}/")))
             });
         } else {
             // Git enumerates only explicitly selected paths and honors ignore
@@ -155,7 +159,6 @@ impl LoopStore {
             let mut args = vec![
                 "--literal-pathspecs",
                 "ls-files",
-                "--cached",
                 "--others",
                 "--exclude-standard",
                 "-z",

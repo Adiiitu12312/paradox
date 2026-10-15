@@ -187,6 +187,20 @@ fn tracking_is_explicit_ignored_paths_are_skipped_and_untrack_keeps_history() {
 }
 
 #[test]
+fn tracking_the_root_registers_only_extra_paths_and_can_be_cleared() {
+    let root = fixture();
+    fs::write(root.path().join("fresh.ts"), b"fresh\n").unwrap();
+    let mut store = open(root.path());
+    assert_eq!(store.track_paths(&[PathBuf::from(".")], false).unwrap(), 1);
+    assert!(store.repo.extra_tracked().unwrap().contains("fresh.ts"));
+    assert!(!store.repo.extra_tracked().unwrap().contains("a.ts"));
+    assert_eq!(store.track_paths(&[PathBuf::from(".")], true).unwrap(), 1);
+    let tracked = store.repo.tracked(&[]).unwrap();
+    assert!(tracked.contains("a.ts"));
+    assert!(!tracked.contains("fresh.ts"));
+}
+
+#[test]
 fn missing_files_are_recreated_and_undo_restores_absence() {
     let root = fixture();
     let mut store = open(root.path());
