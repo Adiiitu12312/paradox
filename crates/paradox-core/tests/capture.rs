@@ -221,6 +221,16 @@ fn large_scan_keeps_baseline_and_detects_changes_after_warmup() {
 
 #[test]
 #[cfg(unix)]
+fn ambiguous_repository_paths_are_rejected_before_store_creation() {
+    let root = tempfile::Builder::new().prefix("paradox\n").tempdir().unwrap();
+    git(root.path(), &["init", "-q"]);
+    let repo = Repo::discover(&[OsString::from("-C"), root.path().as_os_str().to_owned()]);
+    assert!(repo.is_err());
+    assert!(!root.path().join(".paradox").exists());
+}
+
+#[test]
+#[cfg(unix)]
 fn rejected_store_link_cannot_log_outside_the_repository() {
     let temp = fixture();
     let outside = tempfile::tempdir().unwrap();
@@ -230,7 +240,10 @@ fn rejected_store_link_cannot_log_outside_the_repository() {
     let repo = Repo::discover(&[OsString::from("-C"), temp.path().as_os_str().to_owned()]).unwrap();
     assert!(LoopStore::open(repo).is_err());
     paradox_core::store::log_at(&linked, "store failed");
-    assert_eq!(fs::read(outside.path().join("log")).unwrap(), b"untouched\n");
+    assert_eq!(
+        fs::read(outside.path().join("log")).unwrap(),
+        b"untouched\n"
+    );
     assert!(!outside.path().join("lock").exists());
     assert!(!outside.path().join("index.sqlite3").exists());
 }

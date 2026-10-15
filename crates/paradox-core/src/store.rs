@@ -579,8 +579,7 @@ impl LoopStore {
 pub fn log_at(root: &Path, message: &str) {
     // Store opening may have failed because this directory is a link. Logging
     // that failure must not follow it and write outside the repository.
-    if !fs::symlink_metadata(root)
-        .is_ok_and(|meta| meta.is_dir() && !meta.file_type().is_symlink())
+    if !fs::symlink_metadata(root).is_ok_and(|meta| meta.is_dir() && !meta.file_type().is_symlink())
     {
         return;
     }

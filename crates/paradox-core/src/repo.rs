@@ -38,13 +38,16 @@ impl Repo {
             .context("repository paths must be UTF-8 for loop storage")?;
         let lines: Vec<_> = text.lines().collect();
         ensure!(
-            lines.len() >= 4,
-            "loops require a working-tree Git repository"
+            matches!(lines.len(), 4 | 5),
+            "loops require unambiguous Git repository paths without line breaks"
         );
         let root = PathBuf::from(lines[0]);
         let common = PathBuf::from(lines[1]);
         ensure!(
-            root.is_absolute() && common.is_absolute() && common.is_dir(),
+            root.is_absolute()
+                && common.is_absolute()
+                && common.is_dir()
+                && Path::new(lines[3]).is_absolute(),
             "Git returned invalid repository paths"
         );
         let store = if common.file_name().is_some_and(|s| s == ".git") {
