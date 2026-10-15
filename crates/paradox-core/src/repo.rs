@@ -55,7 +55,11 @@ impl Repo {
         if output.status.code() == Some(1) {
             self.head.clear();
         } else {
-            ensure!(output.status.success(), "Cannot refresh current repository HEAD: {}", String::from_utf8_lossy(&output.stderr));
+            ensure!(
+                output.status.success(),
+                "Cannot refresh current repository HEAD: {}",
+                String::from_utf8_lossy(&output.stderr)
+            );
             self.head = std::str::from_utf8(&output.stdout)?.trim().to_owned();
         }
         Ok(self)

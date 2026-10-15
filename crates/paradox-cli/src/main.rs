@@ -5,10 +5,10 @@ use clap::Parser;
 use paradox_cli::dispatch::{Route, force_git_args, route};
 
 mod commands;
+mod safety;
 mod ui;
 mod watch;
 mod workflow;
-mod safety;
 
 #[derive(Parser)]
 #[command(name = "paradox loop", about = "Save loops of tracked files and exit")]
@@ -58,13 +58,20 @@ fn capture(args: &[OsString], index: usize) {
         let mut store = if options.gc || options.stats {
             paradox_core::store::LoopStore::open(repo)?
         } else {
-            match paradox_core::store::LoopStore::try_open(repo.clone(), std::time::Duration::from_millis(15))? {
+            match paradox_core::store::LoopStore::try_open(
+                repo.clone(),
+                std::time::Duration::from_millis(15),
+            )? {
                 Some(store) => store,
                 None => {
                     paradox_core::pending::enqueue(&repo, &options.files)?;
                     // If the previous holder finished before publication, take
                     // responsibility for draining rather than strand a marker.
-                    if let Some(store) = paradox_core::store::LoopStore::try_open(repo, std::time::Duration::ZERO)? { drop(store); }
+                    if let Some(store) =
+                        paradox_core::store::LoopStore::try_open(repo, std::time::Duration::ZERO)?
+                    {
+                        drop(store);
+                    }
                     return Ok(());
                 }
             }
@@ -123,7 +130,10 @@ fn main() {
             Help::parse_from([OsString::from("paradox"), OsString::from("--help")]);
             return;
         }
-        Route::Git => { safety::before_git(&args); paradox_core::git::passthrough(&args) },
+        Route::Git => {
+            safety::before_git(&args);
+            paradox_core::git::passthrough(&args)
+        }
         Route::ForceGit { index } => paradox_core::git::passthrough(&force_git_args(&args, index)),
         Route::Owned { index } if args[index] == "loop" => {
             capture(&args, index);

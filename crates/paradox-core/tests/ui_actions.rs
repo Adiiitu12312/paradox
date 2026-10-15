@@ -346,9 +346,20 @@ fn local_bare_remote_streams_progress_and_rejects_an_outdated_explicit_lease() {
         force_with_lease: true,
     };
     let plan = ui_actions::preview(f.repo(), force.clone()).unwrap();
-    let observed=f.git(&["rev-parse","refs/remotes/origin/main"]).trim().to_owned();
-    assert!(plan.losses.iter().any(|loss|loss.description.contains(&observed)));
-    assert!(plan.reflog_hints.iter().any(|hint|hint.contains(&observed)));
+    let observed = f
+        .git(&["rev-parse", "refs/remotes/origin/main"])
+        .trim()
+        .to_owned();
+    assert!(
+        plan.losses
+            .iter()
+            .any(|loss| loss.description.contains(&observed))
+    );
+    assert!(
+        plan.reflog_hints
+            .iter()
+            .any(|hint| hint.contains(&observed))
+    );
     // Advance only the remote; the local preview remains valid but its exact
     // observed-tip lease must reject the race rather than overwrite new history.
     f.write("a.ts", b"second\n");
@@ -390,59 +401,261 @@ fn local_bare_remote_streams_progress_and_rejects_an_outdated_explicit_lease() {
 }
 
 #[test]
-fn clean_rebase_and_cherry_pick_reuse_native_git_history(){
-    let f=Fixture::new();f.initial();f.run(Action::BranchCreate{name:"topic".into(),start:None});f.run(Action::BranchSwitch{name:"topic".into()});
-    f.write("topic.ts",b"topic\n");f.commit("topic");f.run(Action::BranchSwitch{name:"main".into()});f.write("main.ts",b"main\n");f.commit("main advanced");let main=f.git(&["rev-parse","HEAD"]).trim().to_owned();
-    f.run(Action::BranchSwitch{name:"topic".into()});f.run(Action::Rebase{onto:"main".into(),interactive:false});assert_eq!(f.git(&["rev-parse","HEAD~1"]).trim(),main);let topic=f.git(&["rev-parse","HEAD"]).trim().to_owned();
-    f.run(Action::BranchSwitch{name:"main".into()});f.run(Action::CherryPick{revision:topic});assert_eq!(f.git(&["show","HEAD:topic.ts"]),"topic\n");assert_eq!(f.git(&["show","HEAD:main.ts"]),"main\n");
+fn clean_rebase_and_cherry_pick_reuse_native_git_history() {
+    let f = Fixture::new();
+    f.initial();
+    f.run(Action::BranchCreate {
+        name: "topic".into(),
+        start: None,
+    });
+    f.run(Action::BranchSwitch {
+        name: "topic".into(),
+    });
+    f.write("topic.ts", b"topic\n");
+    f.commit("topic");
+    f.run(Action::BranchSwitch {
+        name: "main".into(),
+    });
+    f.write("main.ts", b"main\n");
+    f.commit("main advanced");
+    let main = f.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    f.run(Action::BranchSwitch {
+        name: "topic".into(),
+    });
+    f.run(Action::Rebase {
+        onto: "main".into(),
+        interactive: false,
+    });
+    assert_eq!(f.git(&["rev-parse", "HEAD~1"]).trim(), main);
+    let topic = f.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    f.run(Action::BranchSwitch {
+        name: "main".into(),
+    });
+    f.run(Action::CherryPick { revision: topic });
+    assert_eq!(f.git(&["show", "HEAD:topic.ts"]), "topic\n");
+    assert_eq!(f.git(&["show", "HEAD:main.ts"]), "main\n");
 }
 
 #[test]
-fn discard_restores_both_index_and_working_bytes_and_handles_unborn_new_files(){
-    let f=Fixture::new();f.initial();f.write("a.ts",b"staged\n");f.git(&["add","a.ts"]);f.write("a.ts",b"working\n");
-    f.run(Action::Discard{paths:vec!["a.ts".into()]});assert_eq!(f.git(&["show",":a.ts"]),"base\n");assert_eq!(fs::read(f.0.path().join("a.ts")).unwrap(),b"base\n");assert!(f.git(&["status","--porcelain"]).is_empty());
-    let unborn=Fixture::new();unborn.write("new.ts",b"staged\n");unborn.git(&["add","new.ts"]);unborn.write("new.ts",b"working\n");let result=unborn.run(Action::Discard{paths:vec!["new.ts".into()]});assert!(!unborn.0.path().join("new.ts").exists());assert!(unborn.git(&["ls-files"]).is_empty());assert_eq!(result["safety_loops"].as_array().unwrap().len(),2);
+fn discard_restores_both_index_and_working_bytes_and_handles_unborn_new_files() {
+    let f = Fixture::new();
+    f.initial();
+    f.write("a.ts", b"staged\n");
+    f.git(&["add", "a.ts"]);
+    f.write("a.ts", b"working\n");
+    f.run(Action::Discard {
+        paths: vec!["a.ts".into()],
+    });
+    assert_eq!(f.git(&["show", ":a.ts"]), "base\n");
+    assert_eq!(fs::read(f.0.path().join("a.ts")).unwrap(), b"base\n");
+    assert!(f.git(&["status", "--porcelain"]).is_empty());
+    let unborn = Fixture::new();
+    unborn.write("new.ts", b"staged\n");
+    unborn.git(&["add", "new.ts"]);
+    unborn.write("new.ts", b"working\n");
+    let result = unborn.run(Action::Discard {
+        paths: vec!["new.ts".into()],
+    });
+    assert!(!unborn.0.path().join("new.ts").exists());
+    assert!(unborn.git(&["ls-files"]).is_empty());
+    assert_eq!(result["safety_loops"].as_array().unwrap().len(), 2);
 }
 
 #[test]
-fn safety_operation_never_unpins_an_existing_user_pin_with_identical_content(){
-    let f=Fixture::new();f.initial();f.write("a.ts",b"preserve pinned content\n");
-    let mut store=LoopStore::open(f.repo()).unwrap();store.capture(&[f.0.path().join("a.ts")]).unwrap();let original=store.loops("a.ts").unwrap()[0].id;store.pin_loop(original,true).unwrap();drop(store);
-    f.run(Action::Reset{target:"HEAD".into(),mode:ResetMode::Hard});
-    let store=LoopStore::open(f.repo()).unwrap();let pinned=store.loops("a.ts").unwrap().into_iter().find(|row|row.id==original).unwrap();assert!(pinned.pinned);let version=store.resolve("a.ts",&original.to_string()).unwrap();assert_eq!(store.version_bytes("a.ts",&version).unwrap(),b"preserve pinned content\n");
+fn safety_operation_never_unpins_an_existing_user_pin_with_identical_content() {
+    let f = Fixture::new();
+    f.initial();
+    f.write("a.ts", b"preserve pinned content\n");
+    let mut store = LoopStore::open(f.repo()).unwrap();
+    store.capture(&[f.0.path().join("a.ts")]).unwrap();
+    let original = store.loops("a.ts").unwrap()[0].id;
+    store.pin_loop(original, true).unwrap();
+    drop(store);
+    f.run(Action::Reset {
+        target: "HEAD".into(),
+        mode: ResetMode::Hard,
+    });
+    let store = LoopStore::open(f.repo()).unwrap();
+    let pinned = store
+        .loops("a.ts")
+        .unwrap()
+        .into_iter()
+        .find(|row| row.id == original)
+        .unwrap();
+    assert!(pinned.pinned);
+    let version = store.resolve("a.ts", &original.to_string()).unwrap();
+    assert_eq!(
+        store.version_bytes("a.ts", &version).unwrap(),
+        b"preserve pinned content\n"
+    );
 }
 
 #[test]
-fn loss_previews_name_exact_branch_tag_and_reset_objects_and_bound_commit_lists(){
+fn loss_previews_name_exact_branch_tag_and_reset_objects_and_bound_commit_lists() {
     use std::io::Write;
     use std::process::Stdio;
-    let f=Fixture::new();f.initial();let base=f.git(&["rev-parse","HEAD"]).trim().to_owned();
-    let mut import=Command::new("git").args(["fast-import","--quiet"]).current_dir(f.0.path()).stdin(Stdio::piped()).stderr(Stdio::piped()).spawn().unwrap();
-    {let mut input=import.stdin.take().unwrap();for index in 0..60{let subject=format!("unique loss {index}");write!(input,"commit refs/heads/topic\ncommitter Fixture <fixture@example.invalid> {} +0000\ndata {}\n{}\n{}\n",1_700_000_000+index,subject.len(),subject,if index==0{format!("from {base}\n")}else{String::new()}).unwrap();}writeln!(input,"done").unwrap();}
-    let output=import.wait_with_output().unwrap();assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));let tip=f.git(&["rev-parse","topic"]).trim().to_owned();
-    let branch=ui_actions::preview(f.repo(),Action::BranchDelete{name:"topic".into(),force:true}).unwrap();assert!(branch.losses.iter().any(|loss|loss.description.contains(&tip)));assert!(branch.losses.iter().any(|loss|loss.description.contains("60 commits are not merged")));assert!(branch.losses.iter().any(|loss|loss.description.contains("10 additional commits omitted")));assert_eq!(branch.losses.iter().filter(|loss|loss.description.starts_with("Commit:")).count(),50);assert!(branch.reflog_hints.iter().any(|hint|hint.contains(&tip)));
-    f.git(&["tag","-a","exact-tag","-m","annotation","topic"]);let tag_object=f.git(&["rev-parse","refs/tags/exact-tag"]).trim().to_owned();let tag=ui_actions::preview(f.repo(),Action::TagDelete{name:"exact-tag".into()}).unwrap();assert!(tag.losses.iter().any(|loss|loss.description.contains(&tag_object)));assert!(tag.reflog_hints.iter().any(|hint|hint.contains(&tag_object)));
-    f.git(&["checkout","-q","topic"]);let reset=ui_actions::preview(f.repo(),Action::Reset{target:base.clone(),mode:ResetMode::Soft}).unwrap();assert!(reset.losses.iter().any(|loss|loss.description.contains(&tip)&&loss.description.contains(&base)));assert!(reset.safety.is_empty());assert!(reset.reflog_hints.iter().any(|hint|hint.contains(&tip)));
+    let f = Fixture::new();
+    f.initial();
+    let base = f.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    let mut import = Command::new("git")
+        .args(["fast-import", "--quiet"])
+        .current_dir(f.0.path())
+        .stdin(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        let mut input = import.stdin.take().unwrap();
+        for index in 0..60 {
+            let subject = format!("unique loss {index}");
+            write!(input,"commit refs/heads/topic\ncommitter Fixture <fixture@example.invalid> {} +0000\ndata {}\n{}\n{}\n",1_700_000_000+index,subject.len(),subject,if index==0{format!("from {base}\n")}else{String::new()}).unwrap();
+        }
+        writeln!(input, "done").unwrap();
+    }
+    let output = import.wait_with_output().unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let tip = f.git(&["rev-parse", "topic"]).trim().to_owned();
+    let branch = ui_actions::preview(
+        f.repo(),
+        Action::BranchDelete {
+            name: "topic".into(),
+            force: true,
+        },
+    )
+    .unwrap();
+    assert!(
+        branch
+            .losses
+            .iter()
+            .any(|loss| loss.description.contains(&tip))
+    );
+    assert!(
+        branch
+            .losses
+            .iter()
+            .any(|loss| loss.description.contains("60 commits are not merged"))
+    );
+    assert!(
+        branch
+            .losses
+            .iter()
+            .any(|loss| loss.description.contains("10 additional commits omitted"))
+    );
+    assert_eq!(
+        branch
+            .losses
+            .iter()
+            .filter(|loss| loss.description.starts_with("Commit:"))
+            .count(),
+        50
+    );
+    assert!(branch.reflog_hints.iter().any(|hint| hint.contains(&tip)));
+    f.git(&["tag", "-a", "exact-tag", "-m", "annotation", "topic"]);
+    let tag_object = f
+        .git(&["rev-parse", "refs/tags/exact-tag"])
+        .trim()
+        .to_owned();
+    let tag = ui_actions::preview(
+        f.repo(),
+        Action::TagDelete {
+            name: "exact-tag".into(),
+        },
+    )
+    .unwrap();
+    assert!(
+        tag.losses
+            .iter()
+            .any(|loss| loss.description.contains(&tag_object))
+    );
+    assert!(
+        tag.reflog_hints
+            .iter()
+            .any(|hint| hint.contains(&tag_object))
+    );
+    f.git(&["checkout", "-q", "topic"]);
+    let reset = ui_actions::preview(
+        f.repo(),
+        Action::Reset {
+            target: base.clone(),
+            mode: ResetMode::Soft,
+        },
+    )
+    .unwrap();
+    assert!(
+        reset
+            .losses
+            .iter()
+            .any(|loss| loss.description.contains(&tip) && loss.description.contains(&base))
+    );
+    assert!(reset.safety.is_empty());
+    assert!(reset.reflog_hints.iter().any(|hint| hint.contains(&tip)));
 }
 
 #[test]
-fn a_long_lived_repo_discards_to_current_branch_head_and_labels_safety_correctly(){
-    let f=Fixture::new();f.initial();let session_repo=f.repo();let startup=session_repo.head.clone();
-    f.git(&["checkout","-qb","new-head"]);f.write("a.ts",b"current branch baseline\n");f.commit("current branch commit");let current=f.git(&["rev-parse","HEAD"]).trim().to_owned();assert_ne!(startup,current);
-    f.write("a.ts",b"working edit after switch\n");let action=Action::Discard{paths:vec!["a.ts".into()]};
-    let plan=ui_actions::preview(session_repo.clone(),action.clone()).unwrap();
-    let result=ui_actions::execute(session_repo,action,Some(&plan),Cancellation::new(),|_|{}).unwrap();
-    assert_eq!(fs::read(f.0.path().join("a.ts")).unwrap(),b"current branch baseline\n");assert_eq!(f.git(&["show",":a.ts"]),"current branch baseline\n");
-    let store=LoopStore::open(f.repo()).unwrap();let rows=store.loops("a.ts").unwrap();
-    for safety in result["safety_loops"].as_array().unwrap(){let id=safety["id"].as_i64().unwrap();let row=rows.iter().find(|row|row.id==id).unwrap();assert_eq!(row.head_sha,current);}
+fn a_long_lived_repo_discards_to_current_branch_head_and_labels_safety_correctly() {
+    let f = Fixture::new();
+    f.initial();
+    let session_repo = f.repo();
+    let startup = session_repo.head.clone();
+    f.git(&["checkout", "-qb", "new-head"]);
+    f.write("a.ts", b"current branch baseline\n");
+    f.commit("current branch commit");
+    let current = f.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    assert_ne!(startup, current);
+    f.write("a.ts", b"working edit after switch\n");
+    let action = Action::Discard {
+        paths: vec!["a.ts".into()],
+    };
+    let plan = ui_actions::preview(session_repo.clone(), action.clone()).unwrap();
+    let result = ui_actions::execute(
+        session_repo,
+        action,
+        Some(&plan),
+        Cancellation::new(),
+        |_| {},
+    )
+    .unwrap();
+    assert_eq!(
+        fs::read(f.0.path().join("a.ts")).unwrap(),
+        b"current branch baseline\n"
+    );
+    assert_eq!(f.git(&["show", ":a.ts"]), "current branch baseline\n");
+    let store = LoopStore::open(f.repo()).unwrap();
+    let rows = store.loops("a.ts").unwrap();
+    for safety in result["safety_loops"].as_array().unwrap() {
+        let id = safety["id"].as_i64().unwrap();
+        let row = rows.iter().find(|row| row.id == id).unwrap();
+        assert_eq!(row.head_sha, current);
+    }
 }
 
 #[test]
-fn continue_merge_strips_a_closed_ai_marker_from_the_resolved_index_only(){
-    let f=Fixture::new();f.initial();f.git(&["checkout","-qb","topic"]);f.write("a.ts",b"theirs\n");f.commit("topic");f.git(&["checkout","-q","main"]);f.write("a.ts",b"ours\n");f.commit("main");assert!(!f.output(&["merge","--no-edit","topic"]).status.success());
-    let conflict=ui_actions::conflict(f.repo(),"a.ts").unwrap();let working="/*> combine both branches */\nresolved bytes\n";
+fn continue_merge_strips_a_closed_ai_marker_from_the_resolved_index_only() {
+    let f = Fixture::new();
+    f.initial();
+    f.git(&["checkout", "-qb", "topic"]);
+    f.write("a.ts", b"theirs\n");
+    f.commit("topic");
+    f.git(&["checkout", "-q", "main"]);
+    f.write("a.ts", b"ours\n");
+    f.commit("main");
+    assert!(!f.output(&["merge", "--no-edit", "topic"]).status.success());
+    let conflict = ui_actions::conflict(f.repo(), "a.ts").unwrap();
+    let working = "/*> combine both branches */\nresolved bytes\n";
     let request=serde_json::from_value::<ResolveRequest>(json!({"path":"a.ts","token":conflict["token"],"choice":"manual","result":working,"mark_resolved":true})).unwrap();
-    ui_actions::resolve_conflict(f.repo(),request).unwrap();assert_eq!(f.git(&["show",":a.ts"]),working);
-    f.run(Action::Continue{operation:Operation::Merge});
-    assert_eq!(f.git(&["show","HEAD:a.ts"]),"resolved bytes\n");assert_eq!(f.git(&["show",":a.ts"]),"resolved bytes\n");assert_eq!(fs::read_to_string(f.0.path().join("a.ts")).unwrap(),working);
+    ui_actions::resolve_conflict(f.repo(), request).unwrap();
+    assert_eq!(f.git(&["show", ":a.ts"]), working);
+    f.run(Action::Continue {
+        operation: Operation::Merge,
+    });
+    assert_eq!(f.git(&["show", "HEAD:a.ts"]), "resolved bytes\n");
+    assert_eq!(f.git(&["show", ":a.ts"]), "resolved bytes\n");
+    assert_eq!(
+        fs::read_to_string(f.0.path().join("a.ts")).unwrap(),
+        working
+    );
 }

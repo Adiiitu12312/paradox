@@ -7,7 +7,7 @@ use std::io::{Read, Write};
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::blob::{BlobStore, LocalStore, atomic_write, directory, reject_link};
+use crate::blob::{BlobStore, LocalStore, directory, reject_link};
 use crate::config::Config;
 use crate::repo::Repo;
 
@@ -22,7 +22,9 @@ pub struct LoopStore {
     pub(crate) _lock: File,
 }
 impl Drop for LoopStore {
-    fn drop(&mut self) { crate::pending::finish(self); }
+    fn drop(&mut self) {
+        crate::pending::finish(self);
+    }
 }
 
 #[derive(Debug, Default)]
@@ -114,7 +116,7 @@ impl LoopStore {
     }
 
     fn lock_file(repo: &Repo) -> Result<File> {
-        crate::migration::require_migrated(&repo)?;
+        crate::migration::require_migrated(repo)?;
         directory(&repo.store)?;
         let lock_path = repo.store.join("lock");
         reject_link(&lock_path)?;
@@ -134,10 +136,16 @@ impl LoopStore {
         loop {
             match fs2::FileExt::try_lock_exclusive(&lock) {
                 Ok(()) => return Self::from_lock(repo, lock).map(Some),
-                Err(error) if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() => {
-                    if started.elapsed() >= timeout { return Ok(None); }
-                    std::thread::sleep(Duration::from_millis(1).min(timeout.saturating_sub(started.elapsed())));
-                },
+                Err(error)
+                    if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() =>
+                {
+                    if started.elapsed() >= timeout {
+                        return Ok(None);
+                    }
+                    std::thread::sleep(
+                        Duration::from_millis(1).min(timeout.saturating_sub(started.elapsed())),
+                    );
+                }
                 Err(error) => return Err(error.into()),
             }
         }
@@ -210,7 +218,9 @@ impl LoopStore {
                 CREATE INDEX loops_head ON loops(head_sha);
                 CREATE INDEX loops_blob ON loops(blob_hash);
                 UPDATE schema_version SET version=3; COMMIT;");
-            if migration.is_err() { let _ = index.execute_batch("ROLLBACK;"); }
+            if migration.is_err() {
+                let _ = index.execute_batch("ROLLBACK;");
+            }
             index.execute_batch("PRAGMA foreign_keys=ON;")?;
             migration?;
         }
@@ -249,8 +259,10 @@ impl LoopStore {
     }
 
     pub(crate) fn denied(&self, path: &str) -> bool {
-        self.repo.root.join(path).starts_with(&self.repo.common) || path.split('/')
-            .any(|part| matches!(part, ".git" | ".paradox") || self.denylist.is_match(part))
+        self.repo.root.join(path).starts_with(&self.repo.common)
+            || path
+                .split('/')
+                .any(|part| matches!(part, ".git" | ".paradox") || self.denylist.is_match(part))
             || self.denylist.is_match(path)
     }
 
@@ -528,15 +540,37 @@ impl LoopStore {
             let latest: Option<bool> = self.index.query_row(
                 "SELECT deleted FROM loops WHERE worktree=?1 AND path=?2 ORDER BY ts DESC,id DESC LIMIT 1",
                 params![self.repo.worktree,path], |row| row.get(0)).optional()?;
-            if latest == Some(true) { return Ok((false, false, false)); }
-            if latest.is_none() {
-                let tracked = self.repo.command(&["--literal-pathspecs","ls-files","--error-unmatch","--",path]).output()?;
-                if !tracked.status.success() { return Ok((false,false,true)); }
+            if latest == Some(true) {
+                return Ok((false, false, false));
             }
-            self.save_loop(NewLoop { path, bytes: &[], hash: "", state: None,
-                kind: "deleted", message: "file deleted", auto_label: true,
-                deleted: true, pinned: false, mode: None })?;
-            return Ok((true,false,false));
+            if latest.is_none() {
+                let tracked = self
+                    .repo
+                    .command(&[
+                        "--literal-pathspecs",
+                        "ls-files",
+                        "--error-unmatch",
+                        "--",
+                        path,
+                    ])
+                    .output()?;
+                if !tracked.status.success() {
+                    return Ok((false, false, true));
+                }
+            }
+            self.save_loop(NewLoop {
+                path,
+                bytes: &[],
+                hash: "",
+                state: None,
+                kind: "deleted",
+                message: "file deleted",
+                auto_label: true,
+                deleted: true,
+                pinned: false,
+                mode: None,
+            })?;
+            return Ok((true, false, false));
         };
         if meta.len() > self.config.size_limit_bytes {
             return Ok((false, false, true));
@@ -619,14 +653,19 @@ impl LoopStore {
             mode,
         } = input;
         let hash = if deleted { "" } else { hash };
-        let stored_size = if deleted { 0 } else { i64::try_from(self.blobs.put(hash, bytes)?)? };
+        let stored_size = if deleted {
+            0
+        } else {
+            i64::try_from(self.blobs.put(hash, bytes)?)?
+        };
         crate::fault("after_blob");
         self.index.execute_batch("BEGIN IMMEDIATE")?;
         let result = (|| -> Result<(i64, Vec<String>)> {
-            if !deleted && self.index.execute(
-                "INSERT OR IGNORE INTO blobs VALUES(?1,?2)",
-                params![hash, stored_size],
-            )? > 0
+            if !deleted
+                && self.index.execute(
+                    "INSERT OR IGNORE INTO blobs VALUES(?1,?2)",
+                    params![hash, stored_size],
+                )? > 0
             {
                 self.index.execute(
                     "UPDATE meta SET value=CAST(value AS INTEGER)+?1 WHERE key='blob_bytes'",
@@ -711,8 +750,14 @@ impl LoopStore {
         .filter_map(|p| fs::metadata(self.repo.store.join(p)).ok())
         .map(|m| m.len())
         .sum();
-        let pending: u64 = fs::read_dir(self.repo.store.join("pending")).ok().into_iter().flatten()
-            .filter_map(|entry|entry.ok()).filter_map(|entry|entry.metadata().ok()).map(|meta|meta.len().max(4096)).sum();
+        let pending: u64 = fs::read_dir(self.repo.store.join("pending"))
+            .ok()
+            .into_iter()
+            .flatten()
+            .filter_map(|entry| entry.ok())
+            .filter_map(|entry| entry.metadata().ok())
+            .map(|meta| meta.len().max(4096))
+            .sum();
         let mut markers = 0;
         for entry in fs::read_dir(&self.repo.store)? {
             let entry = entry?;
@@ -720,7 +765,10 @@ impl LoopStore {
             let name = name.to_string_lossy();
             if ((name.starts_with("writing-") && name.ends_with(".toml"))
                 || (name.starts_with("setup-") && name.ends_with(".json"))
-                || matches!(name.as_ref(), "watch.json" | "watch.stop" | "safety_enabled"))
+                || matches!(
+                    name.as_ref(),
+                    "watch.json" | "watch.stop" | "safety_enabled"
+                ))
                 && entry.file_type()?.is_file()
             {
                 markers += entry.metadata()?.len().max(4096);
@@ -755,15 +803,19 @@ impl LoopStore {
                 .optional()?;
             let Some((id, hash)) = oldest else {
                 self.log("Storage cap cannot be met without removing pinned or newest per-file loops; retained those loops");
-                eprintln!("paradox: storage cap exceeded; pinned and newest per-file loops were retained");
+                eprintln!(
+                    "paradox: storage cap exceeded; pinned and newest per-file loops were retained"
+                );
                 break;
             };
             self.index.execute("DELETE FROM loops WHERE id=?1", [id])?;
-            if !hash.is_empty() && !self.index.query_row(
-                "SELECT EXISTS(SELECT 1 FROM loops WHERE blob_hash=?1)",
-                [&hash],
-                |r| r.get::<_, bool>(0),
-            )? {
+            if !hash.is_empty()
+                && !self.index.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM loops WHERE blob_hash=?1)",
+                    [&hash],
+                    |r| r.get::<_, bool>(0),
+                )?
+            {
                 let removed: i64 = self.index.query_row(
                     "SELECT stored_size FROM blobs WHERE hash=?1",
                     [&hash],

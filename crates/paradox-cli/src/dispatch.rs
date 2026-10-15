@@ -14,23 +14,63 @@ pub enum Route {
     FileCommit { index: usize, file: usize },
 }
 
-enum Scan { Command(usize), Delimiter(usize), Unknown }
+enum Scan {
+    Command(usize),
+    Delimiter(usize),
+    Unknown,
+}
 
 /// Shared raw global-option scan. An unknown flag cannot safely identify a
 /// future Git subcommand, so it always stays untouched on the pass-through path.
 fn scan(args: &[OsString]) -> Scan {
-    let mut i=0;
-    while let Some(arg)=args.get(i) {
-        let Some(text)=arg.to_str() else { return Scan::Command(i); };
-        if text=="--" { return Scan::Delimiter(i); }
-        if matches!(text,"-C"|"-c"|"--git-dir"|"--work-tree"|"--namespace"|"--config-env") {
-            if args.get(i+1).is_none(){return Scan::Unknown;} i+=2;continue;
+    let mut i = 0;
+    while let Some(arg) = args.get(i) {
+        let Some(text) = arg.to_str() else {
+            return Scan::Command(i);
+        };
+        if text == "--" {
+            return Scan::Delimiter(i);
         }
-        if ["-C","-c","--git-dir=","--work-tree=","--namespace=","--config-env=","--exec-path="].iter().any(|prefix|text.starts_with(prefix)&&text.len()>prefix.len())
-            || matches!(text,"--no-pager"|"-P"|"-p"|"--paginate"|"--bare"|"--no-replace-objects"|"--no-lazy-fetch"|"--no-optional-locks"|"--no-advice") {
-            i+=1;continue;
+        if matches!(
+            text,
+            "-C" | "-c" | "--git-dir" | "--work-tree" | "--namespace" | "--config-env"
+        ) {
+            if args.get(i + 1).is_none() {
+                return Scan::Unknown;
+            }
+            i += 2;
+            continue;
         }
-        if text.starts_with('-'){return Scan::Unknown;}
+        if [
+            "-C",
+            "-c",
+            "--git-dir=",
+            "--work-tree=",
+            "--namespace=",
+            "--config-env=",
+            "--exec-path=",
+        ]
+        .iter()
+        .any(|prefix| text.starts_with(prefix) && text.len() > prefix.len())
+            || matches!(
+                text,
+                "--no-pager"
+                    | "-P"
+                    | "-p"
+                    | "--paginate"
+                    | "--bare"
+                    | "--no-replace-objects"
+                    | "--no-lazy-fetch"
+                    | "--no-optional-locks"
+                    | "--no-advice"
+            )
+        {
+            i += 1;
+            continue;
+        }
+        if text.starts_with('-') {
+            return Scan::Unknown;
+        }
         return Scan::Command(i);
     }
     Scan::Unknown
@@ -38,33 +78,66 @@ fn scan(args: &[OsString]) -> Scan {
 
 /// The actual subcommand following recognized native Git global arguments.
 /// No lossy decoding or argument reconstruction occurs here.
-pub fn git_subcommand_index(args:&[OsString])->Option<usize>{match scan(args){Scan::Command(index)=>Some(index),_=>None}}
+pub fn git_subcommand_index(args: &[OsString]) -> Option<usize> {
+    match scan(args) {
+        Scan::Command(index) => Some(index),
+        _ => None,
+    }
+}
 
 /// A Paradox file escape delimiter is routing syntax, never a Git global flag.
-pub fn global_args(args:&[OsString],index:usize)->&[OsString]{
-    let end=match scan(args){Scan::Delimiter(delimiter)if delimiter+1==index=>delimiter,_=>index}; &args[..end]
+pub fn global_args(args: &[OsString], index: usize) -> &[OsString] {
+    let end = match scan(args) {
+        Scan::Delimiter(delimiter) if delimiter + 1 == index => delimiter,
+        _ => index,
+    };
+    &args[..end]
 }
 
 /// Inspect raw argv before constructing Clap, a database, or configuration.
-pub fn route(args:&[OsString])->Route {
-    if args.len()==1&&matches!(args[0].to_str(),Some("--help"|"-h")){return Route::Help;}
-    let index=match scan(args){
-        Scan::Command(index)=>index,
-        Scan::Delimiter(index)=>{
-            return if args.get(index+1).is_some()&&args.get(index+2).is_some_and(|arg|arg=="commit") {
-                Route::FileCommit{index:index+2,file:index+1}
-            }else{Route::Git};
-        },
-        Scan::Unknown=>return Route::Git,
-    };
-    let Some(command)=args[index].to_str() else{return Route::Git;};
-    if command=="git"{return Route::ForceGit{index};}
-    if OWNED.contains(&command){
-        if matches!(command,"commit"|"init")&&args[index+1..].iter().any(|arg|arg=="-h"||arg=="--help"){return Route::Git;}
-        return Route::Owned{index};
+pub fn route(args: &[OsString]) -> Route {
+    if args.len() == 1 && matches!(args[0].to_str(), Some("--help" | "-h")) {
+        return Route::Help;
     }
-    if (command.contains('.')||command.contains('/')||command.contains('\\'))&&args.get(index+1).is_some_and(|arg|arg=="commit"){
-        return Route::FileCommit{index:index+1,file:index};
+    let index = match scan(args) {
+        Scan::Command(index) => index,
+        Scan::Delimiter(index) => {
+            return if args.get(index + 1).is_some()
+                && args.get(index + 2).is_some_and(|arg| arg == "commit")
+            {
+                Route::FileCommit {
+                    index: index + 2,
+                    file: index + 1,
+                }
+            } else {
+                Route::Git
+            };
+        }
+        Scan::Unknown => return Route::Git,
+    };
+    let Some(command) = args[index].to_str() else {
+        return Route::Git;
+    };
+    if command == "git" {
+        return Route::ForceGit { index };
+    }
+    if OWNED.contains(&command) {
+        if matches!(command, "commit" | "init")
+            && args[index + 1..]
+                .iter()
+                .any(|arg| arg == "-h" || arg == "--help")
+        {
+            return Route::Git;
+        }
+        return Route::Owned { index };
+    }
+    if (command.contains('.') || command.contains('/') || command.contains('\\'))
+        && args.get(index + 1).is_some_and(|arg| arg == "commit")
+    {
+        return Route::FileCommit {
+            index: index + 1,
+            file: index,
+        };
     }
     Route::Git
 }
@@ -97,9 +170,18 @@ mod tests {
             (&["--help", "commit"], Git),
             (&["commit", "-h"], Git),
             (&["--future-option", "loop"], Git),
-            (&["--", "commit", "commit", "-m", "x"], FileCommit {index:2,file:1}),
-            (&["-C", "repo", "--", "ui", "commit"], FileCommit {index:4,file:3}),
-            (&["--", "-strange", "commit"], FileCommit {index:2,file:1}),
+            (
+                &["--", "commit", "commit", "-m", "x"],
+                FileCommit { index: 2, file: 1 },
+            ),
+            (
+                &["-C", "repo", "--", "ui", "commit"],
+                FileCommit { index: 4, file: 3 },
+            ),
+            (
+                &["--", "-strange", "commit"],
+                FileCommit { index: 2, file: 1 },
+            ),
             (&["--", "not-a-command"], Git),
             (&["-C"], Git),
             (&["status"], Git),
@@ -140,14 +222,28 @@ mod tests {
     }
 
     #[test]
-    fn actual_subcommand_and_file_escape_globals_are_unambiguous(){
-        let args:Vec<_>=["-C","repo","-c","alias.other=reset","reset","--hard"].map(OsString::from).to_vec();
-        assert_eq!(git_subcommand_index(&args),Some(4));assert_eq!(global_args(&args,4),&args[..4]);
-        let escaped:Vec<_>=["-C","repo","--","commit","commit","-m","message"].map(OsString::from).to_vec();
-        assert_eq!(git_subcommand_index(&escaped),None);assert_eq!(global_args(&escaped,3),&escaped[..2]);
-        let unknown:Vec<_>=["--future-global","reset"].map(OsString::from).to_vec();assert_eq!(git_subcommand_index(&unknown),None);
-        let value:Vec<_>=["-c","--","status"].map(OsString::from).to_vec();assert_eq!(global_args(&value,2),&value[..2]);
-        for owned in OWNED{let args=vec![OsString::from(owned),OsString::from("commit")];assert!(matches!(route(&args),Route::Owned{index:0}|Route::ForceGit{index:0}));}
+    fn actual_subcommand_and_file_escape_globals_are_unambiguous() {
+        let args: Vec<_> = ["-C", "repo", "-c", "alias.other=reset", "reset", "--hard"]
+            .map(OsString::from)
+            .to_vec();
+        assert_eq!(git_subcommand_index(&args), Some(4));
+        assert_eq!(global_args(&args, 4), &args[..4]);
+        let escaped: Vec<_> = ["-C", "repo", "--", "commit", "commit", "-m", "message"]
+            .map(OsString::from)
+            .to_vec();
+        assert_eq!(git_subcommand_index(&escaped), None);
+        assert_eq!(global_args(&escaped, 3), &escaped[..2]);
+        let unknown: Vec<_> = ["--future-global", "reset"].map(OsString::from).to_vec();
+        assert_eq!(git_subcommand_index(&unknown), None);
+        let value: Vec<_> = ["-c", "--", "status"].map(OsString::from).to_vec();
+        assert_eq!(global_args(&value, 2), &value[..2]);
+        for owned in OWNED {
+            let args = vec![OsString::from(owned), OsString::from("commit")];
+            assert!(matches!(
+                route(&args),
+                Route::Owned { index: 0 } | Route::ForceGit { index: 0 }
+            ));
+        }
     }
 
     proptest! {

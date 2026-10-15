@@ -250,68 +250,187 @@ fn snapshot(git: &mut Git, path: &str, source: &str) -> Result<(Vec<u8>, bool, O
     ))
 }
 
-fn reference_object(git:&mut Git,reference:&str)->Result<String>{
-    let bytes=git.checked(&["rev-parse","--verify","--end-of-options",reference],None)?;
+fn reference_object(git: &mut Git, reference: &str) -> Result<String> {
+    let bytes = git.checked(
+        &["rev-parse", "--verify", "--end-of-options", reference],
+        None,
+    )?;
     Ok(text(&bytes).trim().to_owned())
 }
 
-fn commit_losses(git:&mut Git,old:&str,new:Option<&str>,exclude_ref:Option<&str>,losses:&mut Vec<Loss>)->Result<()> {
-    let mut revisions=vec![old.to_owned(),"--not".into()];
-    if let Some(new)=new{revisions.push(new.into());}
-    if let Some(reference)=exclude_ref{revisions.extend([format!("--exclude={reference}"),"--all".into()]);}
-    let mut count_args=vec!["rev-list".to_owned(),"--count".into()];count_args.extend(revisions.clone());count_args.push("--".into());
-    let count=git.checked(&count_args.iter().map(String::as_str).collect::<Vec<_>>(),None)?;
-    let count=text(&count).trim().parse::<u64>()?;
+fn commit_losses(
+    git: &mut Git,
+    old: &str,
+    new: Option<&str>,
+    exclude_ref: Option<&str>,
+    losses: &mut Vec<Loss>,
+) -> Result<()> {
+    let mut revisions = vec![old.to_owned(), "--not".into()];
+    if let Some(new) = new {
+        revisions.push(new.into());
+    }
+    if let Some(reference) = exclude_ref {
+        revisions.extend([format!("--exclude={reference}"), "--all".into()]);
+    }
+    let mut count_args = vec!["rev-list".to_owned(), "--count".into()];
+    count_args.extend(revisions.clone());
+    count_args.push("--".into());
+    let count = git.checked(
+        &count_args.iter().map(String::as_str).collect::<Vec<_>>(),
+        None,
+    )?;
+    let count = text(&count).trim().parse::<u64>()?;
     losses.push(Loss{path:None,reference:Some(old.into()),description:format!("{count} commits leave this reference's reachable history; up to 50 are listed below. Other references may still retain them.")});
-    if count==0{return Ok(());}
-    let mut args=vec!["log".to_owned(),"--no-show-signature".into(),"--no-notes".into(),"-z".into(),"--format=%H%x00%s".into(),"--max-count=50".into()];args.extend(revisions);args.push("--".into());
-    let bytes=git.checked(&args.iter().map(String::as_str).collect::<Vec<_>>(),None)?;
-    let mut records:Vec<_>=bytes.split(|byte|*byte==0).collect();if records.last()==Some(&b"".as_slice()){records.pop();}
-    ensure!(records.len().is_multiple_of(2),"invalid loss-preview commit records");
-    for row in records.as_chunks::<2>().0.iter(){losses.push(Loss{path:None,reference:Some(text(row[0])),description:format!("Commit: {}",text(row[1]))});}
-    if count>50{losses.push(Loss{path:None,reference:None,description:format!("{} additional commits omitted from this bounded preview (total {count}); inspect the old object ID before confirming.",count-50)});}
+    if count == 0 {
+        return Ok(());
+    }
+    let mut args = vec![
+        "log".to_owned(),
+        "--no-show-signature".into(),
+        "--no-notes".into(),
+        "-z".into(),
+        "--format=%H%x00%s".into(),
+        "--max-count=50".into(),
+    ];
+    args.extend(revisions);
+    args.push("--".into());
+    let bytes = git.checked(&args.iter().map(String::as_str).collect::<Vec<_>>(), None)?;
+    let mut records: Vec<_> = bytes.split(|byte| *byte == 0).collect();
+    if records.last() == Some(&b"".as_slice()) {
+        records.pop();
+    }
+    ensure!(
+        records.len().is_multiple_of(2),
+        "invalid loss-preview commit records"
+    );
+    for row in records.as_chunks::<2>().0.iter() {
+        losses.push(Loss {
+            path: None,
+            reference: Some(text(row[0])),
+            description: format!("Commit: {}", text(row[1])),
+        });
+    }
+    if count > 50 {
+        losses.push(Loss{path:None,reference:None,description:format!("{} additional commits omitted from this bounded preview (total {count}); inspect the old object ID before confirming.",count-50)});
+    }
     Ok(())
 }
 
-fn exact_losses(git:&mut Git,action:&Action,lease:Option<&str>,losses:&mut Vec<Loss>,hints:&mut Vec<String>)->Result<()> {
-    match action{
-        Action::BranchDelete{name,..}=>{
-            let reference=format!("refs/heads/{name}");let old=reference_object(git,&reference)?;
-            losses.push(Loss{path:None,reference:Some(reference.clone()),description:format!("Delete branch {name} at exact tip {old}")});
-            if let Some(head)=git.head()?{let count=git.checked(&["rev-list","--count",&old,"--not",&head,"--"],None)?;losses.push(Loss{path:None,reference:Some(reference.clone()),description:format!("{} commits are not merged into the current HEAD",text(&count).trim())});}
-            commit_losses(git,&old,None,Some(&reference),losses)?;
-            hints.push(format!("Restore exact branch with argv {}",json!(["git","update-ref",reference,old])));
-        },
-        Action::TagDelete{name}=>{
-            let reference=format!("refs/tags/{name}");let old=reference_object(git,&reference)?;
-            losses.push(Loss{path:None,reference:Some(reference.clone()),description:format!("Delete tag object/reference {old}; tags normally have no reflog")});
-            let commit=git.run(&["rev-parse","--verify","--quiet","--end-of-options",&format!("{reference}^{{commit}}")],None)?;
-            if commit.status.success(){commit_losses(git,text(&commit.stdout).trim(),None,Some(&reference),losses)?;}
-            hints.push(format!("Restore the original annotated/lightweight tag with argv {}",json!(["git","update-ref",reference,old])));
-        },
-        Action::Reset{target,mode}=>{
-            let old=git.head()?.context("reset requires an existing HEAD")?;let new=super::revision(git,target)?;
-            losses.push(Loss{path:None,reference:Some("HEAD".into()),description:format!("Move HEAD from {old} to {new}; reset mode {mode:?}")});
-            commit_losses(git,&old,Some(&new),None,losses)?;
+fn exact_losses(
+    git: &mut Git,
+    action: &Action,
+    lease: Option<&str>,
+    losses: &mut Vec<Loss>,
+    hints: &mut Vec<String>,
+) -> Result<()> {
+    match action {
+        Action::BranchDelete { name, .. } => {
+            let reference = format!("refs/heads/{name}");
+            let old = reference_object(git, &reference)?;
+            losses.push(Loss {
+                path: None,
+                reference: Some(reference.clone()),
+                description: format!("Delete branch {name} at exact tip {old}"),
+            });
+            if let Some(head) = git.head()? {
+                let count =
+                    git.checked(&["rev-list", "--count", &old, "--not", &head, "--"], None)?;
+                losses.push(Loss {
+                    path: None,
+                    reference: Some(reference.clone()),
+                    description: format!(
+                        "{} commits are not merged into the current HEAD",
+                        text(&count).trim()
+                    ),
+                });
+            }
+            commit_losses(git, &old, None, Some(&reference), losses)?;
+            hints.push(format!(
+                "Restore exact branch with argv {}",
+                json!(["git", "update-ref", reference, old])
+            ));
+        }
+        Action::TagDelete { name } => {
+            let reference = format!("refs/tags/{name}");
+            let old = reference_object(git, &reference)?;
+            losses.push(Loss {
+                path: None,
+                reference: Some(reference.clone()),
+                description: format!(
+                    "Delete tag object/reference {old}; tags normally have no reflog"
+                ),
+            });
+            let commit = git.run(
+                &[
+                    "rev-parse",
+                    "--verify",
+                    "--quiet",
+                    "--end-of-options",
+                    &format!("{reference}^{{commit}}"),
+                ],
+                None,
+            )?;
+            if commit.status.success() {
+                commit_losses(
+                    git,
+                    text(&commit.stdout).trim(),
+                    None,
+                    Some(&reference),
+                    losses,
+                )?;
+            }
+            hints.push(format!(
+                "Restore the original annotated/lightweight tag with argv {}",
+                json!(["git", "update-ref", reference, old])
+            ));
+        }
+        Action::Reset { target, mode } => {
+            let old = git.head()?.context("reset requires an existing HEAD")?;
+            let new = super::revision(git, target)?;
+            losses.push(Loss {
+                path: None,
+                reference: Some("HEAD".into()),
+                description: format!("Move HEAD from {old} to {new}; reset mode {mode:?}"),
+            });
+            commit_losses(git, &old, Some(&new), None, losses)?;
             hints.push(format!("Old HEAD remains inspectable with git show {old}; recover its history with git branch recovery-{short} {old}",short=&old[..12]));
-        },
-        Action::Push{remote,branch,force_with_lease:true}=>{
-            let old=lease.context("missing observed remote tip")?;let reference=format!("refs/heads/{branch}");let new=reference_object(git,&reference)?;
+        }
+        Action::Push {
+            remote,
+            branch,
+            force_with_lease: true,
+        } => {
+            let old = lease.context("missing observed remote tip")?;
+            let reference = format!("refs/heads/{branch}");
+            let new = reference_object(git, &reference)?;
             losses.push(Loss{path:None,reference:Some(format!("{remote}/{reference}")),description:format!("Replace observed remote tip {old} with local tip {new}; the lease rejects any remote tip change")});
-            commit_losses(git,old,Some(&new),None,losses)?;
+            commit_losses(git, old, Some(&new), None, losses)?;
             hints.push(format!("Observed remote history: git show {old}; preserve it locally with git branch recovery-{short} {old}",short=&old[..12]));
-        },
-        Action::StashDrop{oid}|Action::StashApply{oid,pop:true}=>{
-            losses.push(Loss{path:None,reference:Some(oid.clone()),description:format!("Remove stash entry for exact object {oid}")});
-            hints.push(format!("Recover the dropped stash while its object exists: git stash apply {oid}"));
-        },
-        _=>{losses.push(Loss{path:None,reference:None,description:"Git may update the index, working tree, and/or current branch history".into()});}
+        }
+        Action::StashDrop { oid } | Action::StashApply { oid, pop: true } => {
+            losses.push(Loss {
+                path: None,
+                reference: Some(oid.clone()),
+                description: format!("Remove stash entry for exact object {oid}"),
+            });
+            hints.push(format!(
+                "Recover the dropped stash while its object exists: git stash apply {oid}"
+            ));
+        }
+        _ => {
+            losses.push(Loss {
+                path: None,
+                reference: None,
+                description:
+                    "Git may update the index, working tree, and/or current branch history".into(),
+            });
+        }
     }
     Ok(())
 }
 
 pub fn preview(repo: Repo, action: Action) -> Result<Plan> {
-    let repo=repo.refreshed_head()?;
+    let repo = repo.refreshed_head()?;
     let mut git = Git::new(repo);
     let mut observed_lease = None;
     if let Action::Push {
@@ -355,16 +474,28 @@ pub fn preview(repo: Repo, action: Action) -> Result<Plan> {
     let mut safety = Vec::new();
     let mut skipped = Vec::new();
     let mut losses = Vec::new();
-    let mut reflog_hints=vec!["git reflog --date=iso; paradox loops <file>".into()];
+    let mut reflog_hints = vec!["git reflog --date=iso; paradox loops <file>".into()];
     if destructive {
-        let sources:&[&str]=match &action{
-            Action::BranchDelete{..}|Action::TagDelete{..}|Action::Push{..}|Action::StashDrop{..}|Action::Reset{mode:ResetMode::Soft,..}=>&[],
-            Action::Reset{mode:ResetMode::Mixed,..}=>&["staged"],
-            _=>&["working","staged"],
+        let sources: &[&str] = match &action {
+            Action::BranchDelete { .. }
+            | Action::TagDelete { .. }
+            | Action::Push { .. }
+            | Action::StashDrop { .. }
+            | Action::Reset {
+                mode: ResetMode::Soft,
+                ..
+            } => &[],
+            Action::Reset {
+                mode: ResetMode::Mixed,
+                ..
+            } => &["staged"],
+            _ => &["working", "staged"],
         };
         for path in &paths {
             git.path(path)?;
-            if sources.is_empty(){continue;}
+            if sources.is_empty() {
+                continue;
+            }
             losses.push(Loss {
                 path: Some(path.clone()),
                 reference: None,
@@ -399,7 +530,13 @@ pub fn preview(repo: Repo, action: Action) -> Result<Plan> {
                 }
             }
         }
-        exact_losses(&mut git,&action,observed_lease.as_deref(),&mut losses,&mut reflog_hints)?;
+        exact_losses(
+            &mut git,
+            &action,
+            observed_lease.as_deref(),
+            &mut losses,
+            &mut reflog_hints,
+        )?;
     }
     Ok(Plan {
         action,
@@ -492,8 +629,8 @@ impl Drop for ProtectionGuard {
     }
 }
 pub(super) fn discard(repo: &Repo, paths: &[String]) -> Result<Vec<crate::commit::CommandRecord>> {
-    let current=repo.clone().refreshed_head()?;
-    let repo=&current;
+    let current = repo.clone().refreshed_head()?;
+    let repo = &current;
     let mut git = Git::new(repo.clone());
     let head = git.head()?;
     let mut store = LoopStore::open(repo.clone())?;
@@ -516,10 +653,31 @@ pub(super) fn discard(repo: &Repo, paths: &[String]) -> Result<Vec<crate::commit
                 path: path.clone(),
                 version,
             }])?;
-            git.checked(&["--literal-pathspecs","restore","--staged","--source=HEAD","--",&path],None)?;
+            git.checked(
+                &[
+                    "--literal-pathspecs",
+                    "restore",
+                    "--staged",
+                    "--source=HEAD",
+                    "--",
+                    &path,
+                ],
+                None,
+            )?;
         } else {
             write_result(&mut store, &path, None)?;
-            git.checked(&["--literal-pathspecs","rm","--cached","-f","--ignore-unmatch","--",&path],None)?;
+            git.checked(
+                &[
+                    "--literal-pathspecs",
+                    "rm",
+                    "--cached",
+                    "-f",
+                    "--ignore-unmatch",
+                    "--",
+                    &path,
+                ],
+                None,
+            )?;
         }
     }
     Ok(git.commands)

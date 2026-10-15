@@ -39,19 +39,26 @@ impl Config {
     /// Owned commands synchronize this hint after loading configuration.
     /// Disabled pass-through never needs to parse TOML to discover the flag.
     pub fn sync_safety_flag(&self, store: &Path) -> Result<()> {
-        if !store.is_dir() { return Ok(()); }
-        let flag=store.join("safety_enabled");
+        if !store.is_dir() {
+            return Ok(());
+        }
+        let flag = store.join("safety_enabled");
         crate::blob::reject_link(&flag)?;
         if self.safety_loop_commands.is_empty() {
             match std::fs::remove_file(&flag) {
-                Ok(()) => { #[cfg(unix)] std::fs::File::open(store)?.sync_all()?; }
-                Err(error) if error.kind()==std::io::ErrorKind::NotFound => {}
+                Ok(()) => {
+                    #[cfg(unix)]
+                    std::fs::File::open(store)?.sync_all()?;
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
                 Err(error) => return Err(error.into()),
             }
         } else {
-            let unchanged=std::fs::metadata(&flag).is_ok_and(|metadata|metadata.len()==2)
-                && std::fs::read(&flag).is_ok_and(|bytes|bytes==b"1\n");
-            if !unchanged { crate::blob::atomic_write(&flag,b"1\n")?; }
+            let unchanged = std::fs::metadata(&flag).is_ok_and(|metadata| metadata.len() == 2)
+                && std::fs::read(&flag).is_ok_and(|bytes| bytes == b"1\n");
+            if !unchanged {
+                crate::blob::atomic_write(&flag, b"1\n")?;
+            }
         }
         Ok(())
     }
@@ -84,13 +91,35 @@ mod tests {
     use super::*;
     #[test]
     fn legacy_config_gets_time_and_count_defaults_and_flag_sync_is_idempotent() {
-        let directory=tempfile::tempdir().unwrap();let root=directory.path();
-        std::fs::write(root.join("config.toml"),"retention_commits=5\nsafety_loop_commands=['reset']\n").unwrap();
-        let mut config=Config::load(root).unwrap();assert_eq!(config.retention_hours,24);assert_eq!(config.retention_min_loops,20);assert_eq!(config.retention_commits,5);
-        config.sync_safety_flag(root).unwrap();let flag=root.join("safety_enabled");assert_eq!(std::fs::read(&flag).unwrap(),b"1\n");
-        let time=std::time::UNIX_EPOCH+std::time::Duration::from_secs(1_000_000);
-        std::fs::File::options().write(true).open(&flag).unwrap().set_times(std::fs::FileTimes::new().set_modified(time)).unwrap();let previous=std::fs::metadata(&flag).unwrap().modified().unwrap();
-        config.sync_safety_flag(root).unwrap();assert_eq!(std::fs::metadata(&flag).unwrap().modified().unwrap(),previous);
-        config.safety_loop_commands.clear();config.sync_safety_flag(root).unwrap();assert!(!flag.exists());
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path();
+        std::fs::write(
+            root.join("config.toml"),
+            "retention_commits=5\nsafety_loop_commands=['reset']\n",
+        )
+        .unwrap();
+        let mut config = Config::load(root).unwrap();
+        assert_eq!(config.retention_hours, 24);
+        assert_eq!(config.retention_min_loops, 20);
+        assert_eq!(config.retention_commits, 5);
+        config.sync_safety_flag(root).unwrap();
+        let flag = root.join("safety_enabled");
+        assert_eq!(std::fs::read(&flag).unwrap(), b"1\n");
+        let time = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        std::fs::File::options()
+            .write(true)
+            .open(&flag)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(time))
+            .unwrap();
+        let previous = std::fs::metadata(&flag).unwrap().modified().unwrap();
+        config.sync_safety_flag(root).unwrap();
+        assert_eq!(
+            std::fs::metadata(&flag).unwrap().modified().unwrap(),
+            previous
+        );
+        config.safety_loop_commands.clear();
+        config.sync_safety_flag(root).unwrap();
+        assert!(!flag.exists());
     }
 }

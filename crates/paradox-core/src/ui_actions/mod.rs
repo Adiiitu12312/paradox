@@ -348,7 +348,7 @@ pub fn execute(
     cancel: Cancellation,
     mut on_event: impl FnMut(ProgressEvent) + Send,
 ) -> Result<Value> {
-    let repo=repo.refreshed_head()?;
+    let repo = repo.refreshed_head()?;
     let destructive = safety::destructive(&action);
     if destructive {
         let plan = plan.context("This action requires preview and explicit confirmation")?;
@@ -367,14 +367,16 @@ pub fn execute(
         repo: repo.clone(),
         loops: safety_loops.clone(),
     };
-    if let Some(plan) = plan && destructive {
+    if let Some(plan) = plan
+        && destructive
+    {
         safety::validate(&repo, plan)?;
     }
     if let Action::Discard { paths } = &action {
         git.commands.extend(safety::discard(&repo, paths)?);
         return Ok(git.finish(json!({"changed":true,"safety_loops":safety_loops})));
     }
-    if matches!(action,Action::Continue{..}) {
+    if matches!(action, Action::Continue { .. }) {
         // Agent-rule markers remain in the working file. Only the resolved
         // index is sanitized before Git resumes its native sequencer/commit.
         crate::commit::strip_staged(&repo)?;

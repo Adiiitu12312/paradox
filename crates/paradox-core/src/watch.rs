@@ -175,7 +175,9 @@ fn tracked(repo: &Repo) -> Result<TrackedPaths> {
         .collect();
     let mut checked_dirs = HashSet::new();
     paths.retain(|path| {
-        !excluded(path) && !repo.root.join(path).starts_with(&repo.common) && repo.regular_file_cached(path, &mut checked_dirs).is_ok()
+        !excluded(path)
+            && !repo.root.join(path).starts_with(&repo.common)
+            && repo.regular_file_cached(path, &mut checked_dirs).is_ok()
     });
     // Git rejects check-ignore pathspecs that traverse a symlink. Validate
     // unique parents before ignore IPC, preserving missing final files while
@@ -814,9 +816,9 @@ pub fn wait_started(repo: &Repo, token: &str, launch: impl FnOnce() -> Result<()
             !remaining.is_zero(),
             "watch background startup timed out; see <git-common-dir>/paradox/watch-output.log"
         );
-        receiver
-            .recv_timeout(remaining)
-            .context("watch background startup timed out; see <git-common-dir>/paradox/watch-output.log")??;
+        receiver.recv_timeout(remaining).context(
+            "watch background startup timed out; see <git-common-dir>/paradox/watch-output.log",
+        )??;
     }
 }
 

@@ -77,3 +77,48 @@ fn opt_in_reset_preserves_a_staged_only_version_when_working_already_matches_hea
     px(root,&["reset","--hard","HEAD"]);
     let store=LoopStore::open(repo(root)).unwrap();let loops=store.loops("file.txt").unwrap();let staged=loops.iter().find(|row|row.message=="before git reset (staged)").unwrap();let version=store.resolve("file.txt",&staged.id.to_string()).unwrap();assert_eq!(store.version_bytes("file.txt",&version).unwrap(),b"unique staged-only bytes\n");assert!(loops.iter().all(|row|!row.pinned));assert_eq!(loops[0].message,"before git reset (working)");assert_eq!(fs::read_to_string(root.join("file.txt")).unwrap(),"base\n");
 }
+
+struct WatchSession{root:std::path::PathBuf,child:std::process::Child}
+impl WatchSession{
+    fn start(root:&Path)->Self{
+        use std::io::{BufRead,BufReader};
+        let mut child=command(root,env!("CARGO_BIN_EXE_paradox")).arg("watch").stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(fs::File::create(root.join("watch-errors.txt")).unwrap()).spawn().unwrap();
+        let stdout=child.stdout.take().unwrap();let (sender,receiver)=std::sync::mpsc::channel();
+        std::thread::spawn(move||{for (index,line) in BufReader::new(stdout).lines().enumerate(){if index==0{let _=sender.send(line);}}});
+        let session=Self{root:root.to_owned(),child};let line=receiver.recv_timeout(std::time::Duration::from_secs(20)).expect("watch readiness timeout").unwrap();assert!(line.starts_with("Paradox watching "),"{line}");session
+    }
+    fn stop(&mut self){
+        px(&self.root,&["watch","--stop"]);let deadline=std::time::Instant::now()+std::time::Duration::from_secs(20);
+        loop{if let Some(status)=self.child.try_wait().unwrap(){assert!(status.success());break;}assert!(std::time::Instant::now()<deadline,"watch did not exit after stop");std::thread::sleep(std::time::Duration::from_millis(25));}
+        assert_eq!(px(&self.root,&["watch","--status"]).trim(),"not running");
+    }
+}
+impl Drop for WatchSession{fn drop(&mut self){if self.child.try_wait().ok().flatten().is_none(){let _=command(&self.root,env!("CARGO_BIN_EXE_paradox")).args(["watch","--stop"]).output();let _=self.child.kill();let _=self.child.wait();}}}
+struct Savers(Vec<std::process::Child>);
+impl Drop for Savers{fn drop(&mut self){for child in &mut self.0{if child.try_wait().ok().flatten().is_none(){let _=child.kill();}let _=child.wait();}}}
+
+#[test]
+fn twenty_contended_cli_savers_return_before_release_and_holder_drains_watch_dedup(){
+    let temp=fixture();let root=temp.path();px(root,&["loop"]);
+    let mut watch=WatchSession::start(root);
+    let held=LoopStore::open(repo(root)).unwrap();let pending=held.repo.store.join("pending");
+    let final_bytes="//> final edit during contention\nunique final body\n";
+    fs::write(root.join("file.txt"),final_bytes).unwrap();
+    let mut savers=Savers((0..20).map(|_|command(root,env!("CARGO_BIN_EXE_paradox")).args(["loop","file.txt"]).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::inherit()).spawn().unwrap()).collect());
+    let deadline=std::time::Instant::now()+std::time::Duration::from_secs(20);
+    loop{
+        let mut finished=0;for child in &mut savers.0{if let Some(status)=child.try_wait().unwrap(){assert!(status.success());finished+=1;}}
+        if finished==20{break;}
+        assert!(std::time::Instant::now()<deadline,"CLI saves blocked behind the still-held LoopStore lock: {finished}/20 finished");std::thread::sleep(std::time::Duration::from_millis(25));
+    }
+    // No holder release has happened yet: successful exits require published
+    // path-only handoffs, not blocked SQLite writers or missing final content.
+    let markers:Vec<_>=fs::read_dir(&pending).unwrap().map(|entry|entry.unwrap().path()).collect();assert!(!markers.is_empty());for marker in markers{let bytes=fs::read(marker).unwrap();assert!(!String::from_utf8_lossy(&bytes).contains("unique final body"));}
+    assert!(held.loops("file.txt").unwrap().is_empty());drop(held);
+    // The synchronous holder-drop drain and the watcher race through the same
+    // normal dedup path; no second loop may appear after its debounce/window.
+    std::thread::sleep(std::time::Duration::from_millis(2100));
+    let store=LoopStore::open(repo(root)).unwrap();let loops=store.loops("file.txt").unwrap();assert_eq!(loops.len(),1);assert_eq!(loops[0].message,"final edit during contention");let version=store.resolve("file.txt",&loops[0].id.to_string()).unwrap();assert_eq!(store.version_bytes("file.txt",&version).unwrap(),final_bytes.as_bytes());
+    assert_eq!(store.index.query_row("PRAGMA integrity_check",[],|row|row.get::<_,String>(0)).unwrap(),"ok");assert_eq!(store.index.query_row("SELECT COUNT(*) FROM loops l WHERE deleted=0 AND NOT EXISTS(SELECT 1 FROM blobs b WHERE b.hash=l.blob_hash)",[],|row|row.get::<_,i64>(0)).unwrap(),0);drop(store);
+    assert_eq!(fs::read_dir(&pending).unwrap().count(),0);watch.stop();
+}

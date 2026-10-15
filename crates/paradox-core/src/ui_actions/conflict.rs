@@ -98,7 +98,7 @@ pub struct ResolveRequest {
     pub mark_resolved: bool,
 }
 pub fn resolve_conflict(repo: Repo, request: ResolveRequest) -> Result<Value> {
-    let repo=repo.refreshed_head()?;
+    let repo = repo.refreshed_head()?;
     let mut git = Git::new(repo.clone());
     let current = inspect(&mut git, &request.path)?;
     if current.value["token"].as_str() != Some(request.token.as_str()) {

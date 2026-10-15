@@ -34,6 +34,9 @@ fn ok(output: Output) -> String {
 fn git(root: &Path, args: &[&str]) -> String {
     ok(command(root, "git").args(args).output().unwrap())
 }
+fn git_commit_at(root:&Path,message:&str,time:i64){
+    let date=format!("{time} +0000");ok(command(root,"git").args(["commit","-qm",message]).env("GIT_AUTHOR_DATE",&date).env("GIT_COMMITTER_DATE",&date).output().unwrap());
+}
 
 fn open(root: &Path) -> LoopStore {
     LoopStore::open(Repo::discover(&["-C".into(), root.as_os_str().to_owned()]).unwrap()).unwrap()
@@ -48,7 +51,7 @@ fn failing_original_post_commit_does_not_prevent_retention_after_successful_git_
     git(root, &["config", "core.autocrlf", "false"]);
     fs::write(root.join("a.ts"), "base\n").unwrap();
     git(root, &["add", "a.ts"]);
-    git(root, &["commit", "-qm", "base"]);
+    git_commit_at(root, "base", 1_767_225_600);
     let hook = root.join(".git/hooks/post-commit");
     fs::write(
         &hook,
@@ -62,6 +65,8 @@ fn failing_original_post_commit_does_not_prevent_retention_after_successful_git_
         .output()
         .unwrap());
 
+    fs::write(open(root).repo.store.join("config.toml"),"retention_hours=0\nretention_min_loops=0\n").unwrap();
+
     let mut pinned = 0;
     for n in 1..=6 {
         let working = format!("//> change {n}\nbody {n}\n");
@@ -69,13 +74,17 @@ fn failing_original_post_commit_does_not_prevent_retention_after_successful_git_
         // Raw Git proves that its installed post-commit chain performs purge;
         // no wrapper-level purge is available to hide an early hook exit.
         git(root, &["add", "a.ts"]);
-        git(root, &["commit", "-qm", &format!("change {n}")]);
+        let commit_time=1_767_225_600+i64::from(n)*3600;
+        git_commit_at(root,&format!("change {n}"),commit_time);
         assert_eq!(git(root, &["show", "HEAD:a.ts"]), format!("body {n}\n"));
         assert_eq!(fs::read(root.join("a.ts")).unwrap(), working.as_bytes());
-        if n == 1 {
-            let store = open(root);
+        {
+            let store = open(root);let current=store.loops("a.ts").unwrap()[0].id;
+            store.index.execute("UPDATE loops SET ts=?1 WHERE id=?2",(commit_time*1000-500,current)).unwrap();
+            if n == 1 {
             pinned = store.loops("a.ts").unwrap()[0].id;
             store.pin_loop(pinned, true).unwrap();
+            }
         }
     }
     assert_eq!(
@@ -84,7 +93,7 @@ fn failing_original_post_commit_does_not_prevent_retention_after_successful_git_
     );
     let store = open(root);
     let retained = store.loops("a.ts").unwrap();
-    assert_eq!(retained.len(), 3);
+    assert_eq!(retained.len(), 4);
     assert!(
         retained
             .iter()
@@ -96,5 +105,5 @@ fn failing_original_post_commit_does_not_prevent_retention_after_successful_git_
         .map(|entry| entry.message.as_str())
         .collect();
     recent_messages.sort_unstable();
-    assert_eq!(recent_messages, ["change 5", "change 6"]);
+    assert_eq!(recent_messages, ["change 4", "change 5", "change 6"]);
 }
