@@ -1,0 +1,25 @@
+export type GitCommand = { argv: string[]; exit_code: number; stderr: string; stdout?: string }
+export type WithCommands = { commands: GitCommand[] }
+export type RepoInfo = { root: string; name: string; branch: string | null; head: string | null; unborn: boolean }
+export type FileChange = { path: string; old_path: string | null; index_status: string; worktree_status: string; untracked: boolean }
+export type Status = WithCommands & { repo: RepoInfo; files: FileChange[] }
+export type Commit = { sha: string; parents: string[]; subject: string; author_name: string; author_email: string; time: number; refs: string[] }
+export type GraphPage = WithCommands & { commits: Commit[]; next_cursor: string | null; head: string | null }
+export type CommitFile = { path: string; old_path: string | null; status: string; additions: number | null; deletions: number | null }
+export type CommitDetail = WithCommands & Omit<Commit, 'refs'> & { message: string; files: CommitFile[] }
+export type DiffLine = { id: string; kind: 'context' | 'addition' | 'deletion'; text: string; old_line: number | null; new_line: number | null }
+export type Hunk = { id: string; header: string; lines: DiffLine[] }
+export type Diff = WithCommands & { path: string; view: 'working' | 'staged'; commit: string | null; token: string; old_text: string; new_text: string; old_present: boolean; new_present: boolean; binary: boolean; truncated: boolean; hunks: Hunk[] }
+export type Selection = { mode: 'all' } | { mode: 'files'; paths: string[] } | { mode: 'hunks'; path: string; token: string; hunk_ids: string[] } | { mode: 'lines'; path: string; token: string; line_ids: string[] }
+export type Mutation = WithCommands & { changed: boolean }
+export type CommitResult = WithCommands & { head: string }
+export type DiffQuery = { path: string; view: 'working' | 'staged'; commit?: string }
+export type WorkspaceApi = {
+  status: (signal?: AbortSignal) => Promise<Status>
+  graph: (cursor?: string, signal?: AbortSignal) => Promise<GraphPage>
+  detail: (sha: string, signal?: AbortSignal) => Promise<CommitDetail>
+  diff: (query: DiffQuery, signal?: AbortSignal) => Promise<Diff>
+  stage: (selection: Selection) => Promise<Mutation>
+  unstage: (selection: Selection) => Promise<Mutation>
+  commit: (message: string, amend: boolean) => Promise<CommitResult>
+}

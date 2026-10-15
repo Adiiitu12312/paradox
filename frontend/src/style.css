@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+:root { font-family: 'Geist Variable', sans-serif; color-scheme: dark; --bg: #141615; --panel: #191c1a; --raised: #202421; --line: #2c322e; --text: #e1e7e2; --muted: #8d9a91; --accent: #91bca2; --selected: #263a2e; --red: #e6a39e; background: var(--bg); color: var(--text); font-size: 13px; }
+:root[data-theme=light] { color-scheme: light; --bg: #fcfdfc; --panel: #f5f7f5; --raised: #edf1ed; --line: #dde3dd; --text: #253029; --muted: #69786e; --accent: #357b51; --selected: #e0eee4; --red: #b74f48; }
+* { box-sizing: border-box; }
+body { margin: 0; }
+button, textarea, input { font: inherit; }
+button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 30px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--raised); color: var(--text); cursor: pointer; white-space: nowrap; }
+button:hover:not(:disabled) { border-color: var(--muted); }
+button:active:not(:disabled) { transform: translateY(1px); }
+button:disabled { opacity: .4; cursor: default; }
+button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+a { color: inherit; text-decoration: none; }
+h1,h2,h3,p { margin: 0; }
+h1 { font-size: 14px; font-weight: 550; }
+h2 { font-size: 14px; line-height: 1.5; font-weight: 550; }
+h3 { font-size: 12px; font-weight: 550; }
+code, pre, .mono { font-family: 'Geist Mono Variable', monospace; }
+.muted { color: var(--muted); }
+.eyebrow { display: block; font: 10px/1.8 'Geist Mono Variable', monospace; letter-spacing: .08em; color: var(--muted); }
+.workspace { display: grid; grid-template-columns: 196px minmax(0,1fr); min-height: 100dvh; height: 100dvh; overflow: hidden; }
+.sidebar { display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line); padding: 24px 14px 18px; }
+.brand { display: flex; align-items: center; gap: 7px; padding: 0 7px; font-size: 21px; font-weight: 600; letter-spacing: -.05em; }
+.version { margin-left: auto; border: 1px solid var(--line); padding: 2px 5px; border-radius: 4px; font: 10px 'Geist Mono Variable',monospace; color: var(--muted); letter-spacing: 0; }
+.repo-label { display: grid; gap: 7px; margin: 36px 8px 28px; overflow: hidden; }
+.repo-label strong { font-weight: 550; overflow: hidden; text-overflow: ellipsis; }
+nav { display: grid; gap: 5px; }
+nav button { background: transparent; border-color: transparent; justify-content: flex-start; gap: 10px; padding: 9px 10px; }
+nav button[aria-current=page] { color: var(--accent); background: var(--selected); }
+.count { font: 10px 'Geist Mono Variable',monospace; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 2px 5px; }
+nav .count { margin-left: auto; }
+.sidebar-note { margin-top: auto; font-size: 11px; color: var(--muted); padding: 24px 8px 0; }
+.sidebar-note p { margin-top: 12px; line-height: 1.8; }
+.status-dot { display: inline-block; width: 6px; height: 6px; background: var(--muted); border-radius: 50%; margin-right: 7px; }
+.status-dot.online { background: var(--accent); }
+.main { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 67px; padding: 12px 24px; border-bottom: 1px solid var(--line); }
+.topbar > div, .toolbar { display: flex; align-items: center; gap: 12px; }
+.topbar > div:first-child { gap: 10px; }
+.icon-button { padding: 5px; width: 29px; min-width: 29px; background: transparent; border-color: transparent; }
+.content { min-height: 0; flex: 1; display: grid; grid-template-columns: 306px minmax(0,1fr); overflow: hidden; }
+.files-pane, .history-pane { min-height: 0; overflow: auto; border-right: 1px solid var(--line); }
+.pane-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 19px 20px; border-bottom: 1px solid var(--line); min-height: 75px; }
+.file-list { padding: 12px 9px 6px; border-bottom: 1px solid var(--line); }
+.file-list > header { display: flex; align-items: center; justify-content: space-between; margin: 0 9px 9px; }
+.file-list h3 { display: flex; align-items: center; gap: 8px; }
+.text-button { padding: 2px 3px; font-size: 11px; border: none; background: transparent; color: var(--muted); }
+.file-row { display: flex; align-items: center; border-radius: 4px; }
+.file-row:hover { background: var(--raised); }
+.selected { background: var(--selected) !important; }
+.file-name { flex: 1; min-width: 0; justify-content: flex-start; background: transparent; border: none; padding: 8px 9px; font-size: 11px; }
+.file-status { color: var(--accent); font: 10px 'Geist Mono Variable',monospace; min-width: 13px; }
+.commit-form { display: grid; gap: 10px; padding: 22px 18px; }
+.commit-form > label:first-child { font-size: 12px; font-weight: 550; }
+textarea { width: 100%; resize: vertical; min-height: 85px; max-height: 250px; padding: 11px; border: 1px solid var(--line); border-radius: 5px; background: var(--bg); color: var(--text); font-size: 12px; }
+textarea::placeholder { color: var(--muted); }
+.checkbox { display: flex; gap: 8px; align-items: center; font-size: 11px; }
+input[type=checkbox] { accent-color: var(--accent); }
+.commit-form p { font-size: 11px; line-height: 1.6; }
+.primary { color: var(--bg); background: var(--accent); border-color: var(--accent); font-weight: 550; }
+.viewer { min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+.empty { margin: auto; padding: 44px 24px; text-align: center; color: var(--muted); }
+.empty > svg { margin: 0 auto 17px; color: var(--accent); }
+.empty h2,.empty h3 { color: var(--text); margin-bottom: 9px; }
+.empty p { line-height: 1.8; font-size: 12px; max-width: 370px; margin: 0 auto 17px; }
+.shortcut-hint { display: block; padding-top: 16px; font: 10px 'Geist Mono Variable',monospace; }
+.loading { padding: 40px; color: var(--muted); }
+.banner { padding: 11px 22px; border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 12px; font-size: 12px; }
+.banner button { margin-left: auto; }
+.error { color: var(--red); background: color-mix(in srgb,var(--red) 6%,var(--bg)); }
+.notice { color: var(--accent); }
+.diff-panel { min-height: 0; min-width: 0; display: flex; flex-direction: column; flex: 1; }
+.code-diff { min-height: 220px; flex: 1; padding-top: 12px; }
+.selection-panel { border-top: 1px solid var(--line); max-height: 45%; overflow: auto; }
+summary { cursor: pointer; padding: 12px 18px; font-size: 11px; }
+summary > .muted { margin-left: 12px; }
+.selection-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 16px; font-size: 11px; }
+.hunk > header { display: flex; align-items: center; justify-content: space-between; padding: 8px 16px; background: var(--raised); font-size: 11px; }
+.patch-line { display: flex; align-items: start; gap: 6px; font-size: 11px; line-height: 21px; padding: 0 12px; }
+.patch-line code { white-space: pre; }
+.patch-line input { margin-top: 4px; }
+.line-number { min-width: 28px; color: var(--muted); text-align: right; font-family: 'Geist Mono Variable',monospace; }
+.addition { background: color-mix(in srgb,var(--accent) 9%,var(--bg)); }
+.deletion { background: color-mix(in srgb,var(--red) 9%,var(--bg)); }
+.additions { color: var(--accent); }
+.deletions { color: var(--red); }
+.command-log { flex-shrink: 0; border-top: 1px solid var(--line); background: var(--panel); max-height: 220px; overflow: auto; }
+.command-log > div { padding: 0 20px 14px; }
+.command-log section { padding: 9px 0; border-top: 1px solid var(--line); display: flex; flex-wrap: wrap; gap: 12px; font-size: 10px; }
+.command-log code { overflow-wrap: anywhere; }
+.command-log pre { width: 100%; white-space: pre-wrap; margin: 0; }
+.history-pane { display: flex; flex-direction: column; }
+.content:has(.history-pane) { grid-template-columns: minmax(370px, 1fr) minmax(300px, 1fr); }
+.graph-scroll { flex: 1; min-height: 0; overflow: auto; }
+.graph-row { position: absolute; top: 0; left: 0; width: 100%; border: none; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; padding: 0 15px 0 0; justify-content: flex-start; gap: 0; text-align: left; }
+.graph-row:hover { background: var(--raised); }
+.graph-lines { flex-shrink: 0; }
+.graph-description { display: flex; flex: 1; min-width: 0; flex-direction: column; gap: 7px; font-size: 12px; }
+.graph-subtitle { display: flex; align-items: center; gap: 9px; font-size: 10px; }
+.graph-subtitle time { margin-left: auto; flex-shrink: 0; }
+.ref-badge { color: var(--accent); border: 1px solid var(--line); padding: 3px 5px; border-radius: 4px; font: 10px 'Geist Mono Variable',monospace; max-width: 120px; overflow: hidden; text-overflow: ellipsis; margin-left: 12px; }
+.pagination { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 12px 18px; border-top: 1px solid var(--line); font-size: 11px; }
+.commit-detail { overflow: auto; display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+.commit-meta { display: flex; flex-wrap: wrap; gap: 8px 12px; padding: 16px 20px; font-size: 11px; border-bottom: 1px solid var(--line); }
+.commit-meta time { color: var(--muted); }
+.commit-meta pre { width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; font: 12px/1.7 'Geist Variable',sans-serif; margin: 6px 0 0; }
+.commit-files { padding: 9px 12px; max-height: 200px; overflow: auto; flex-shrink: 0; }
+.commit-files button { display: flex; width: 100%; background: transparent; border: none; font-size: 11px; }
+.commit-files .mono { margin-right: auto; }
+.commit-detail .diff-panel { flex: 1 0 350px; }
+dialog { max-width: 440px; border: 1px solid var(--line); border-radius: 8px; padding: 25px; background: var(--panel); color: var(--text); }
+dialog::backdrop { background: #0008; }
+dialog p { color: var(--muted); line-height: 1.7; margin: 14px 0 22px; }
+dialog .toolbar { justify-content: flex-end; }
+@media(max-width: 1050px) { .workspace { grid-template-columns: 160px minmax(0,1fr); } .content { grid-template-columns: 265px minmax(0,1fr); } .content:has(.history-pane) { grid-template-columns: minmax(280px,1fr) minmax(250px,1fr); } .ref-badge { display: none; } }
+@media(max-width: 760px) { .workspace { display: block; height: auto; min-height: 100dvh; overflow: auto; } .sidebar { flex-direction: row; align-items: center; gap: 15px; padding: 12px; border-bottom: 1px solid var(--line); } .brand { font-size: 18px; } .repo-label,.sidebar-note,.version { display: none; } nav { display: flex; margin-left: auto; } nav button { padding: 6px; font-size: 12px; } .main { min-height: calc(100dvh - 60px); } .topbar { min-height: 55px; padding: 10px 15px; } .content,.content:has(.history-pane) { display: flex; flex-direction: column; overflow: visible; } .files-pane { border-right: none; border-bottom: 1px solid var(--line); max-height: 50dvh; } .viewer { min-height: 450px; } .code-diff { height: 400px; flex: auto; } .history-pane { min-height: 450px; height: 55dvh; border-right: none; } .commit-detail { min-height: 200px; overflow: visible; } .selection-panel { max-height: 350px; } .command-log { margin-top: auto; } }

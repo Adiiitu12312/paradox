@@ -285,68 +285,16 @@ pub fn commit(args: &[OsString], index: usize, file: Option<usize>) -> Result<i3
     }
     // An unrecognized Git spelling must not disable our own stripper.
     commit_args.insert(separator.unwrap_or(commit_args.len()), "--verify".into());
-    capture(repo.clone());
-    let mut add = globals.to_vec();
-    add.extend([OsString::from("add"), OsString::from("-A")]);
-    add.extend(stage_options);
-    if !paths.is_empty() {
-        add.push("--".into());
-        add.extend(paths);
-    }
-    let status = paradox_core::git::command(&add).status()?;
-    if !status.success() {
-        return Ok(status.code().unwrap_or(1));
-    }
-    // Let Git prepare its own partial/-a index, then strip it in a mandatory
-    // pre-commit step. --no-verify skips user hooks, but cannot leak markers.
-    let temporary = tempfile::Builder::new()
-        .prefix("paradox-commit-hooks-")
-        .tempdir()?;
-    let hooks = paradox_core::setup::hooks_dir(&repo)?;
-    let exe = std::env::current_exe()?;
-    if hooks.is_dir() {
-        for entry in fs::read_dir(&hooks)? {
-            let entry = entry?;
-            if !paradox_core::setup::runnable(&entry.path()) {
-                continue;
-            }
-            let name = entry.file_name();
-            if name == "pre-commit" || name == "post-commit" || (no_verify && name == "commit-msg")
-            {
-                continue;
-            }
-            let script = paradox_core::setup::hook_script(&exe, Some(&entry.path()), None)?;
-            let path = temporary.path().join(name);
-            fs::write(&path, script)?;
-            paradox_core::setup::executable(&path)?;
-        }
-    }
-    for event in ["pre-commit", "post-commit"] {
-        let previous = hooks.join(event);
-        let previous = paradox_core::setup::runnable(&previous).then_some(previous);
-        let previous = if no_verify && event == "pre-commit" {
-            None
-        } else {
-            previous.as_deref()
-        };
-        let script = paradox_core::setup::hook_script(&exe, previous, Some(event))?;
-        let path = temporary.path().join(event);
-        fs::write(&path, script)?;
-        paradox_core::setup::executable(&path)?;
-    }
-    let mut command = globals.to_vec();
-    command.extend([
-        OsString::from("-c"),
-        format!("core.hooksPath={}", temporary.path().display()).into(),
-        OsString::from("commit"),
-    ]);
-    command.extend(commit_args);
-    let status = paradox_core::git::command(&command).status()?;
+    let outcome = paradox_core::commit::execute_commit(
+        repo,
+        &std::env::current_exe()?,
+        commit_args,
+        paradox_core::commit::StagePolicy::Auto { paths, options: stage_options },
+        no_verify,
+        false,
+    )?;
     drop(pathspec_input);
-    if status.success() {
-        purge(globals);
-    }
-    Ok(status.code().unwrap_or(1))
+    Ok(outcome.code)
 }
 
 fn pathspec_stdin() -> Result<tempfile::NamedTempFile> {

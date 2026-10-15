@@ -288,7 +288,7 @@ fn collision_guard_checks_git_help_and_installed_commands() {
 }
 
 #[test]
-fn missing_git_is_clear_and_reserved_commands_do_not_modify_repo() {
+fn missing_git_is_clear_and_ui_help_does_not_modify_repo() {
     let dir = tempfile::tempdir().unwrap();
     let o = configured(env!("CARGO_BIN_EXE_paradox"), dir.path())
         .env("PATH", "")
@@ -303,9 +303,10 @@ fn missing_git_is_clear_and_reserved_commands_do_not_modify_repo() {
     {
         let o = configured(env!("CARGO_BIN_EXE_paradox"), dir.path())
             .arg(owned)
+            .arg("--help")
             .output()
             .unwrap();
-        assert_eq!(o.status.code(), Some(2), "{owned}");
+        assert_eq!(o.status.code(), Some(0), "{owned}");
     }
     assert!(!dir.path().join(".git").exists());
     assert!(!dir.path().join(".paradox").exists());

@@ -5,6 +5,7 @@ use clap::Parser;
 use paradox_cli::dispatch::{Route, force_git_args, route};
 
 mod commands;
+mod ui;
 mod watch;
 mod workflow;
 
@@ -94,8 +95,8 @@ fn capture(args: &[OsString], index: usize) {
 #[command(
     name = "paradox",
     disable_version_flag = true,
-    about = "Git with local per-file loops (M5 development build)",
-    after_help = "Everything else is Git: original arguments, terminal I/O and exit status pass through.\n\nAvailable additions:\n  loop [file...]     Save tracked files; --gc cleans storage; --stats reports usage\n  loops <file>       List per-file loops and the HEAD baseline\n  timeline           Choose a recent or uncommitted file and view its loops\n  compare <file> [a] [b]   Compare IDs, relative times, messages, HEAD or working\n  rewind <file> <version>  Restore one file; undo restores its safety loop\n  rewind --at HH:MM [--yes]  Preview and confirm a batch\n  pin <id>, unpin <id>     Protect a loop from eviction\n  track <path...>, untrack <path...>  Explicit paths beyond Git's tracked set\n\n  init              Configure editor/AI capture and Git hooks; --uninstall removes owned entries\n  init --print-agent-rule [--guide-path path]  Print rules without installing\n  init --print-editor-config neovim|jetbrains|sublime  Print a snippet\n  commit [file...]   Auto-stage, strip staged messages and commit; also: <file> commit\n\nwatch [--background|--status|--stop]  Manual session-only native save capture\n\nPlanned: ui (M6).\nUse `paradox git <args>` to force pure Git, including commit and init.\nUse `paradox git --help` for Git help. Do not alias git yet."
+    about = "Git with local per-file loops (M6 development build)",
+    after_help = "Everything else is Git: original arguments, terminal I/O and exit status pass through.\n\nAvailable additions:\n  loop [file...]     Save tracked files; --gc cleans storage; --stats reports usage\n  loops <file>       List per-file loops and the HEAD baseline\n  timeline           Choose a recent or uncommitted file and view its loops\n  compare <file> [a] [b]   Compare IDs, relative times, messages, HEAD or working\n  rewind <file> <version>  Restore one file; undo restores its safety loop\n  rewind --at HH:MM [--yes]  Preview and confirm a batch\n  pin <id>, unpin <id>     Protect a loop from eviction\n  track <path...>, untrack <path...>  Explicit paths beyond Git's tracked set\n\n  init              Configure editor/AI capture and Git hooks; --uninstall removes owned entries\n  init --print-agent-rule [--guide-path path]  Print rules without installing\n  init --print-editor-config neovim|jetbrains|sublime  Print a snippet\n  commit [file...]   Auto-stage, strip staged messages and commit; also: <file> commit\n\nwatch [--background|--status|--stop]  Manual session-only native save capture\n\nui [--no-open]     Open the local browser workspace; closes with the last tab.\nUse `paradox git <args>` to force pure Git, including commit and init.\nUse `paradox git --help` for Git help. Do not alias git yet."
 )]
 struct Help {}
 
@@ -120,6 +121,9 @@ fn main() {
         Route::Owned { index } if args[index] == "watch" => {
             Ok(workflow_result(watch::run(&args, index)))
         }
+        Route::Owned { index } if args[index] == "ui" => {
+            Ok(workflow_result(ui::run(&args, index)))
+        }
         Route::Owned { index } if args[index] == "init" || args[index] == "commit" => {
             let result = if args[index] == "init" {
                 workflow::init(&args, index)
@@ -133,7 +137,7 @@ fn main() {
         }
         Route::Owned { index } => {
             eprintln!(
-                "paradox: '{}' is not available in M5; see paradox --help",
+                "paradox: '{}' is not available in M6; see paradox --help",
                 args[index].to_string_lossy()
             );
             std::process::exit(2);

@@ -1,1 +1,4 @@
-//! Browser UI implementation is scheduled for milestones M6–M8.
+//! Authenticated, session-only browser interface bound exclusively to loopback.
+mod assets;
+mod server;
+pub use server::{UiOptions, UiReady, serve};
