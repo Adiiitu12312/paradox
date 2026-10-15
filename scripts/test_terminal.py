@@ -305,6 +305,29 @@ def main():
             status = subprocess.check_output([binary, "watch", "--status"], cwd=root, env=env)
             assert status.strip() == b"not running", status
             print("PASS: foreground watch Ctrl+C exits and releases its session lock")
+            if os.name == "nt":
+                # New process groups and console parents can explicitly ignore
+                # Ctrl+C. The attribute is inherited independently of handlers.
+                parent = root / "watch_ignoring_parent.py"
+                parent.write_text(
+                    "import ctypes, subprocess, sys\n"
+                    "api = ctypes.WinDLL('kernel32', use_last_error=True)\n"
+                    "api.SetConsoleCtrlHandler.argtypes = [ctypes.c_void_p, ctypes.c_int]\n"
+                    "api.SetConsoleCtrlHandler.restype = ctypes.c_int\n"
+                    "if not api.SetConsoleCtrlHandler(None, 1):\n"
+                    "    raise ctypes.WinError(ctypes.get_last_error())\n"
+                    "child = subprocess.Popen([sys.argv[1], 'watch'])\n"
+                    "status = child.wait()\n"
+                    "print('WATCH_CHILD_EXIT=' + str(status), flush=True)\n"
+                    "sys.exit(status)\n"
+                )
+                watched = terminal(sys.executable, [str(parent), binary], root, env,
+                                   interrupt=True, interrupt_ready=b"Paradox watching ")
+                assert watched[0] == 0 and b"Paradox watch stopped" in watched[1], watched
+                assert b"WATCH_CHILD_EXIT=0" in watched[1], watched
+                status = subprocess.check_output([binary, "watch", "--status"], cwd=root, env=env)
+                assert status.strip() == b"not running", status
+                print("PASS: foreground watch Ctrl+C clears its inherited ignore attribute")
         finally:
             subprocess.run([binary, "watch", "--stop"], cwd=root, env=env,
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)

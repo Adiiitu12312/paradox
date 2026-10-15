@@ -1,15 +1,27 @@
-name: Compare lazy macOS CoreServices (non-gating)
-on: workflow_dispatch
+name: Compare fully lazy macOS frameworks (non-gating)
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_source:
+        description: Exact production source for the unpatched baseline
+        required: true
+        default: c79377a74ce53edf9f026f6cedeb5aa1985398d8
+        type: string
 permissions:
   contents: read
 jobs:
   compare:
     runs-on: macos-15
-    timeout-minutes: 25
+    timeout-minutes: 35
     env:
       CARGO_BUILD_TARGET: aarch64-apple-darwin
+      BASELINE_SOURCE: ${{ inputs.baseline_source }}
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.baseline_source }}
+          path: .artifacts/framework-baseline
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -23,13 +35,24 @@ jobs:
           cargo --version >> framework-diagnostics/tool-versions.txt
           git --version >> framework-diagnostics/tool-versions.txt
           sw_vers >> framework-diagnostics/tool-versions.txt
-          cargo build --release --locked -p paradox-cli
-          cp target/aarch64-apple-darwin/release/paradox startup-candidates/O3
+          cargo build --manifest-path .artifacts/framework-baseline/Cargo.toml --release --locked -p paradox-cli
+          cp .artifacts/framework-baseline/target/aarch64-apple-darwin/release/paradox startup-candidates/O3
+          printf '%s\n' "$BASELINE_SOURCE" > framework-diagnostics/baseline-source.txt
       - name: Prepare isolated vendor formatting patch
         if: ${{ !cancelled() }}
         run: |
-          cargo fmt --manifest-path vendor/fsevent-sys/Cargo.toml
-          git diff --binary -- vendor/fsevent-sys > framework-diagnostics/framework-preparation.patch
+          for package in fsevent-sys notify iana-time-zone; do
+            cargo fmt --manifest-path "vendor/$package/Cargo.toml"
+          done
+          git diff --binary -- vendor/fsevent-sys vendor/notify vendor/iana-time-zone > framework-diagnostics/framework-preparation.patch
+          python3 - <<'PY'
+          from pathlib import Path
+          patches = ['[patch.crates-io]']
+          for name in ('fsevent-sys', 'notify', 'iana-time-zone'):
+              path = (Path('vendor') / name).resolve().as_posix()
+              patches.append(f'{name} = {{ path = "{path}" }}')
+          Path('framework-diagnostics/lazy-patches.toml').write_text('\n'.join(patches) + '\n')
+          PY
       - name: Build bare exec-only control
         if: ${{ !cancelled() }}
         run: |
@@ -43,36 +66,46 @@ jobs:
           }
           RS
           rustc framework-diagnostics/exec-only.rs --edition=2024 -C opt-level=3 -C lto=fat -C codegen-units=1 -C panic=abort -C strip=symbols -o startup-candidates/ExecOnly
-      - name: Test candidate native symbol table
+      - name: Test candidate native symbol tables, DATA access and timezone/DST behavior
         if: ${{ !cancelled() }}
-        run: cargo test --manifest-path vendor/fsevent-sys/Cargo.toml --lib -- --nocapture
+        run: |
+          for package in fsevent-sys notify iana-time-zone; do
+            cargo test --manifest-path "vendor/$package/Cargo.toml" --lib --config "$PWD/framework-diagnostics/lazy-patches.toml" -- --nocapture
+          done
       - name: Build lazy candidate with a runner-only Cargo patch
         if: ${{ !cancelled() }}
         run: |
-          cargo build --release -p paradox-cli --config 'patch.crates-io.fsevent-sys.path="vendor/fsevent-sys"'
-          cp target/aarch64-apple-darwin/release/paradox startup-candidates/LazyCoreServices
-      - name: Verify direct CoreServices load command is absent in candidate
+          cargo build --release -p paradox-cli --config "$PWD/framework-diagnostics/lazy-patches.toml"
+          cp target/aarch64-apple-darwin/release/paradox startup-candidates/LazyFrameworks
+      - name: Verify both direct framework load commands are absent in candidate
         if: ${{ !cancelled() }}
         run: |
           otool -L startup-candidates/O3 > framework-diagnostics/O3-libraries.txt
-          otool -L startup-candidates/LazyCoreServices > framework-diagnostics/LazyCoreServices-libraries.txt
+          otool -L startup-candidates/LazyFrameworks > framework-diagnostics/LazyFrameworks-libraries.txt
           python3 - <<'PY'
           from pathlib import Path
           baseline = Path('framework-diagnostics/O3-libraries.txt').read_text()
-          candidate = Path('framework-diagnostics/LazyCoreServices-libraries.txt').read_text()
+          candidate = Path('framework-diagnostics/LazyFrameworks-libraries.txt').read_text()
           assert 'CoreServices.framework' in baseline, baseline
           assert 'CoreServices.framework' not in candidate, candidate
-          print('Candidate has no direct CoreServices framework load command')
+          assert 'CoreFoundation.framework' not in candidate, candidate
+          print('Candidate has no direct CoreFoundation or CoreServices framework load command')
           PY
-      - name: Run all watcher acceptance tests against candidate
+      - name: Run all native core and CLI acceptance tests against candidate
         if: ${{ !cancelled() }}
-        run: cargo test --locked -p paradox-cli --features fault-injection --test watch --config 'patch.crates-io.fsevent-sys.path="vendor/fsevent-sys"' -- --nocapture
+        run: cargo test --workspace --locked --features paradox-cli/fault-injection --config "$PWD/framework-diagnostics/lazy-patches.toml" -- --nocapture
+      - name: Verify candidate terminal inheritance and foreground watch interruption
+        if: ${{ !cancelled() }}
+        run: python3 scripts/test_terminal.py startup-candidates/LazyFrameworks
+      - name: Measure candidate capture performance without changing stored gates
+        if: ${{ !cancelled() }}
+        run: cargo test --release --locked --test capture_performance --config "$PWD/framework-diagnostics/lazy-patches.toml" -- --ignored --nocapture
       - name: Record same-host paired comparison without changing gates
         if: ${{ !cancelled() }}
         run: >-
           python3 scripts/diagnose_macos_startup.py
           --candidate O3="$PWD/startup-candidates/O3"
-          --candidate LazyCoreServices="$PWD/startup-candidates/LazyCoreServices"
+          --candidate LazyFrameworks="$PWD/startup-candidates/LazyFrameworks"
           --candidate ExecOnly="$PWD/startup-candidates/ExecOnly"
           --output "$PWD/framework-diagnostics"
       - uses: actions/upload-artifact@v4

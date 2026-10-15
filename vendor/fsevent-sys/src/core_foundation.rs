@@ -69,82 +69,9 @@ pub struct CFArrayCallBacks {
 }
 //impl Clone for CFArrayCallBacks { }
 
-#[link(name = "CoreFoundation", kind = "framework")]
-extern "C" {
-    pub static kCFTypeArrayCallBacks: CFArrayCallBacks;
-    pub static kCFRunLoopDefaultMode: CFStringRef;
-
-    pub fn CFRelease(res: CFRef);
-    pub fn CFShow(res: CFRef);
-    pub fn CFCopyDescription(cf: CFRef) -> CFStringRef;
-
-    pub fn CFRunLoopRun();
-    pub fn CFRunLoopStop(run_loop: CFRunLoopRef);
-    pub fn CFRunLoopGetCurrent() -> CFRunLoopRef;
-
-    pub fn CFArrayCreateMutable(
-        allocator: CFRef,
-        capacity: CFIndex,
-        callbacks: *const CFArrayCallBacks,
-    ) -> CFMutableArrayRef;
-    pub fn CFArrayInsertValueAtIndex(arr: CFMutableArrayRef, position: CFIndex, element: CFRef);
-    pub fn CFArrayAppendValue(aff: CFMutableArrayRef, element: CFRef);
-    pub fn CFArrayGetCount(arr: CFMutableArrayRef) -> CFIndex;
-    pub fn CFArrayGetValueAtIndex(arr: CFMutableArrayRef, index: CFIndex) -> CFRef;
-
-    pub fn CFURLCreateFileReferenceURL(
-        allocator: CFRef,
-        url: CFURLRef,
-        err: *mut CFErrorRef,
-    ) -> CFURLRef;
-    pub fn CFURLCreateFilePathURL(
-        allocator: CFRef,
-        url: CFURLRef,
-        err: *mut CFErrorRef,
-    ) -> CFURLRef;
-    pub fn CFURLCreateFromFileSystemRepresentation(
-        allocator: CFRef,
-        path: *const ::std::os::raw::c_char,
-        len: CFIndex,
-        is_directory: bool,
-    ) -> CFURLRef;
-    pub fn CFURLCopyAbsoluteURL(res: CFURLRef) -> CFURLRef;
-    pub fn CFURLCopyLastPathComponent(res: CFURLRef) -> CFStringRef;
-    pub fn CFURLCreateCopyDeletingLastPathComponent(allocator: CFRef, url: CFURLRef) -> CFURLRef;
-    pub fn CFURLCreateCopyAppendingPathComponent(
-        allocation: CFRef,
-        url: CFURLRef,
-        path: CFStringRef,
-        is_directory: bool,
-    ) -> CFURLRef;
-    pub fn CFURLCopyFileSystemPath(anUrl: CFURLRef, path_style: CFURLPathStyle) -> CFStringRef;
-
-    pub fn CFURLResourceIsReachable(res: CFURLRef, err: *mut CFErrorRef) -> bool;
-
-    pub fn CFShowStr(str: CFStringRef);
-    pub fn CFStringGetCString(
-        theString: CFStringRef,
-        buffer: *mut ::std::os::raw::c_char,
-        buffer_size: CFIndex,
-        encoding: CFStringEncoding,
-    ) -> bool;
-    pub fn CFStringGetCStringPtr(
-        theString: CFStringRef,
-        encoding: CFStringEncoding,
-    ) -> *const ::std::os::raw::c_char;
-    pub fn CFStringCreateWithCString(
-        alloc: CFRef,
-        source: *const ::std::os::raw::c_char,
-        encoding: CFStringEncoding,
-    ) -> CFStringRef;
-
-    pub fn CFStringCompare(
-        theString1: CFStringRef,
-        theString2: CFStringRef,
-        compareOptions: CFStringCompareFlags,
-    ) -> CFComparisonResult;
-    pub fn CFArrayRemoveValueAtIndex(theArray: CFMutableArrayRef, idx: CFIndex);
-}
+#[path = "lazy_core_foundation.rs"]
+mod lazy;
+pub use lazy::*;
 
 pub unsafe fn str_path_to_cfstring_ref(source: &str, err: &mut CFErrorRef) -> CFStringRef {
     let c_path = CString::new(source).unwrap();
@@ -169,7 +96,7 @@ pub unsafe fn str_path_to_cfstring_ref(source: &str, err: &mut CFErrorRef) -> CF
 
     while !CFURLResourceIsReachable(placeholder, ptr::null_mut()) {
         if imaginary.is_null() {
-            imaginary = CFArrayCreateMutable(kCFAllocatorDefault, 0, &kCFTypeArrayCallBacks);
+            imaginary = CFArrayCreateMutable(kCFAllocatorDefault, 0, type_array_callbacks());
             if imaginary.is_null() {
                 CFRelease(placeholder);
                 return ptr::null_mut();

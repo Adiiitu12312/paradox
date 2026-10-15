@@ -166,6 +166,7 @@ macro_rules! lazy_api {
         /// Resolve all CoreServices symbols once, before creating notify's
         /// FSEvents watcher. Missing framework/symbols return an ordinary error.
         pub fn ensure_loaded() -> Result<(), String> {
+            crate::core_foundation::ensure_loaded()?;
             match API.get_or_init(|| unsafe { Api::load() }) {
                 Ok(_) => Ok(()), Err(error) => Err(error.clone()),
             }
