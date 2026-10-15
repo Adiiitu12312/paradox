@@ -191,7 +191,9 @@ pub fn strip_staged(repo: &Repo) -> Result<usize> {
         Ok(count)
     })();
     // On a failure the real index was never replaced. Only remove our own lock.
-    if !matches!(result, Ok(count) if count > 0) { let _ = fs::remove_file(&lock_path); }
+    if !matches!(result, Ok(count) if count > 0) {
+        let _ = fs::remove_file(&lock_path);
+    }
     result
 }
 
