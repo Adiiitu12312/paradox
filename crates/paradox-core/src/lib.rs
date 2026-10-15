@@ -9,8 +9,8 @@ pub mod repo;
 pub mod setup;
 pub mod store;
 pub mod tracking;
-pub mod ui_git;
 pub mod ui_actions;
+pub mod ui_git;
 pub mod watch;
 #[cfg(target_os = "macos")]
 mod watch_signal;

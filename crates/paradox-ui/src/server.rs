@@ -126,11 +126,12 @@ where
         Ok(Ok(value)) => Json(value).into_response(),
         Ok(Err(error)) => {
             if let Some(action) = error.downcast_ref::<ui_git::ActionError>() {
-                let status = if matches!(action.code, "stale_diff" | "stale_plan" | "operation_busy") {
-                    StatusCode::CONFLICT
-                } else {
-                    StatusCode::UNPROCESSABLE_ENTITY
-                };
+                let status =
+                    if matches!(action.code, "stale_diff" | "stale_plan" | "operation_busy") {
+                        StatusCode::CONFLICT
+                    } else {
+                        StatusCode::UNPROCESSABLE_ENTITY
+                    };
                 (status, Json(json!({"error":action.message,"code":action.code,"commands":action.commands}))).into_response()
             } else {
                 failure(StatusCode::BAD_REQUEST, "invalid_request", error)
@@ -179,60 +180,111 @@ async fn unstage(State(app): State<App>, Json(request): Json<ui_git::StageReques
 }
 async fn commit(State(app): State<App>, Json(request): Json<ui_git::CommitRequest>) -> Response {
     let repo = app.repo.clone();
-    blocking_edit(app, move || ui_git::commit(repo, request, &std::env::current_exe()?)).await
+    blocking_edit(app, move || {
+        ui_git::commit(repo, request, &std::env::current_exe()?)
+    })
+    .await
 }
 async fn blocking_edit<F>(app: App, operation: F) -> Response
-where F: FnOnce() -> Result<Value> + Send + 'static {
+where
+    F: FnOnce() -> Result<Value> + Send + 'static,
+{
     blocking(move || {
-        let _guard = app.operations.mutation.try_lock().map_err(|_| ui_git::ActionError {
-            code: "operation_busy", message: "Another Git operation is running".to_owned(), commands: vec![],
-        })?;
+        let _guard = app
+            .operations
+            .mutation
+            .try_lock()
+            .map_err(|_| ui_git::ActionError {
+                code: "operation_busy",
+                message: "Another Git operation is running".to_owned(),
+                commands: vec![],
+            })?;
         if app.operations.busy() {
-            return Err(ui_git::ActionError { code: "operation_busy", message: "Another Git operation is running".to_owned(), commands: vec![] }.into());
+            return Err(ui_git::ActionError {
+                code: "operation_busy",
+                message: "Another Git operation is running".to_owned(),
+                commands: vec![],
+            }
+            .into());
         }
         operation()
-    }).await
+    })
+    .await
 }
 async fn actions_state(State(app): State<App>) -> Response {
     blocking(move || ui_actions::state(app.repo.clone())).await
 }
 #[derive(Deserialize)]
-struct FileQuery { path: String, revision: Option<String>, cursor: Option<String> }
+struct FileQuery {
+    path: String,
+    revision: Option<String>,
+    cursor: Option<String>,
+}
 async fn blame(State(app): State<App>, Query(query): Query<FileQuery>) -> Response {
-    blocking(move || ui_actions::blame(app.repo.clone(), &query.path, query.revision.as_deref())).await
+    blocking(move || ui_actions::blame(app.repo.clone(), &query.path, query.revision.as_deref()))
+        .await
 }
 async fn file_history(State(app): State<App>, Query(query): Query<FileQuery>) -> Response {
-    blocking(move || ui_actions::history(app.repo.clone(), &query.path, query.cursor.as_deref())).await
+    blocking(move || ui_actions::history(app.repo.clone(), &query.path, query.cursor.as_deref()))
+        .await
 }
 async fn conflict(State(app): State<App>, Query(query): Query<FileQuery>) -> Response {
     blocking(move || ui_actions::conflict(app.repo.clone(), &query.path)).await
 }
-async fn resolve_conflict(State(app): State<App>, Json(request): Json<ui_actions::ResolveRequest>) -> Response {
+async fn resolve_conflict(
+    State(app): State<App>,
+    Json(request): Json<ui_actions::ResolveRequest>,
+) -> Response {
     let repo = app.repo.clone();
     blocking_edit(app, move || ui_actions::resolve_conflict(repo, request)).await
 }
-async fn preview_action(State(app): State<App>, Json(action): Json<ui_actions::Action>) -> Response {
+async fn preview_action(
+    State(app): State<App>,
+    Json(action): Json<ui_actions::Action>,
+) -> Response {
     blocking(move || {
         let plan = ui_actions::preview(app.repo.clone(), action)?;
         app.operations.remember(plan)
-    }).await
+    })
+    .await
 }
 #[derive(Deserialize)]
-struct StartAction { action: ui_actions::Action, confirmation_token: Option<String> }
+struct StartAction {
+    action: ui_actions::Action,
+    confirmation_token: Option<String>,
+}
 async fn start_action(State(app): State<App>, Json(request): Json<StartAction>) -> Response {
-    match app.operations.start(app.repo.clone(), request.action, request.confirmation_token) {
-        Ok(id) => Json(json!({"operation_id":id, "commands":[]})).into_response(),
-        Err(error) => failure(StatusCode::CONFLICT, "operation_not_started", error),
+    match tokio::task::spawn_blocking(move || app
+        .operations
+        .start(app.repo.clone(), request.action, request.confirmation_token)).await {
+        Ok(Ok(id)) => Json(json!({"operation_id":id, "commands":[]})).into_response(),
+        Ok(Err(error)) => {
+            let code = error.downcast_ref::<ui_git::ActionError>().map(|action| action.code).unwrap_or("operation_not_started");
+            failure(StatusCode::CONFLICT, code, error)
+        },
+        Err(error) => failure(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", error),
     }
 }
 async fn progress(State(app): State<App>, Path(id): Path<String>, request: Request) -> Response {
-    let Some(operation) = app.operations.get(&id) else { return failure(StatusCode::NOT_FOUND, "not_found", "Operation not found"); };
-    let after = request.headers().get("last-event-id").and_then(|value| value.to_str().ok()).and_then(|value| value.parse::<u64>().ok()).unwrap_or(0);
-    Sse::new(operation.stream(after)).keep_alive(KeepAlive::default()).into_response()
+    let Some(operation) = app.operations.get(&id) else {
+        return failure(StatusCode::NOT_FOUND, "not_found", "Operation not found");
+    };
+    let after = request
+        .headers()
+        .get("last-event-id")
+        .and_then(|value| value.to_str().ok())
+        .and_then(|value| value.parse::<u64>().ok())
+        .unwrap_or(0);
+    Sse::new(operation.stream(after))
+        .keep_alive(KeepAlive::default())
+        .into_response()
 }
 async fn cancel_action(State(app): State<App>, Path(id): Path<String>) -> Response {
     match app.operations.get(&id) {
-        Some(operation) => { operation.cancel(); Json(json!({"cancelling":true,"commands":[]})).into_response() },
+        Some(operation) => {
+            operation.cancel();
+            Json(json!({"cancelling":true,"commands":[]})).into_response()
+        }
         None => failure(StatusCode::NOT_FOUND, "not_found", "Operation not found"),
     }
 }

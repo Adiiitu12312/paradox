@@ -3,6 +3,7 @@ import { execFileSync, spawn, type ChildProcess } from 'node:child_process'
 import { mkdtempSync, readFileSync, writeFileSync, rmSync, realpathSync, mkdirSync, chmodSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve, sep } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 
 let root: string
 let child: ChildProcess | undefined
@@ -83,6 +84,30 @@ test('missing authentication and foreign origins cannot mutate the index', async
   await expect(page.locator('.sidebar-note')).toContainText('Local session')
 })
 
+test('two commits in one UI session attach fallback loops to the current HEAD', async ({ page }) => {
+  await page.goto(url)
+  await page.getByRole('button', { name: 'Stage all', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('selection staged')
+  await page.getByLabel('Commit message').fill('First session commit')
+  await page.getByRole('button', { name: 'Commit 1 files', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('Commit created')
+  const firstHead = git('rev-parse', 'HEAD').trim()
+  const next = '//> second session edit\n' + original.replace('value0 = 0', 'value0 = 200')
+  writeFileSync(join(root, 'sample.ts'), next)
+  await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+  await page.getByRole('button', { name: 'Stage all', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('selection staged')
+  await page.getByLabel('Commit message').fill('Second session commit')
+  await page.getByRole('button', { name: 'Commit 1 files', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText('Commit created')
+  expect(git('show', 'HEAD:sample.ts')).toBe(next.split('\n').slice(1).join('\n'))
+  const database = new DatabaseSync(join(root, '.paradox', 'index.sqlite3'), { readOnly: true })
+  try {
+    const rows = database.prepare('SELECT head_sha, message FROM loops WHERE path = ? ORDER BY id DESC').all('sample.ts')
+    expect(rows.some(row => row.head_sha === firstHead && row.message === 'second session edit')).toBe(true)
+  } finally { database.close() }
+})
+
 test('user hooks can reject a browser commit without losing the draft or working file', async ({ page }) => {
   const hooks = join(root, '.git', 'no-hooks')
   mkdirSync(hooks)
@@ -148,4 +173,103 @@ test('amend requires confirmation and preserves unstaged working contents', asyn
   expect(git('show', 'HEAD:sample.ts')).toBe(original)
   expect(git('show', `${before}:sample.ts`)).toBe(original)
   expect(readFileSync(join(root, 'sample.ts'), 'utf8')).toBe(working)
+})
+
+test('creates and switches a branch through native workflows, with cancellation preserving the repository', async ({ page }) => {
+  const initialHead = git('rev-parse', 'HEAD')
+  await page.goto(url)
+  await page.getByRole('button', { name: 'Git workflows', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Repository workflows' })).toBeVisible()
+  await page.getByLabel('Branch name', { exact: true }).fill('ui-topic')
+  await page.getByRole('button', { name: 'Create branch', exact: true }).click()
+  const topic = page.locator('.workflow-list > div').filter({ has: page.getByText('ui-topic', { exact: true }) })
+  await expect(topic).toBeVisible()
+  expect(git('rev-parse', 'refs/heads/ui-topic')).toBe(initialHead)
+  await topic.getByRole('button', { name: 'Switch', exact: true }).click()
+  const confirmation = page.getByRole('dialog')
+  await expect(confirmation).toContainText('Confirm branch switch')
+  expect(git('branch', '--show-current').trim()).toBe('main')
+  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click()
+  expect(git('branch', '--show-current').trim()).toBe('main')
+  expect(git('rev-parse', 'HEAD')).toBe(initialHead)
+  expect(readFileSync(join(root, 'sample.ts'), 'utf8')).toBe(working)
+  await topic.getByRole('button', { name: 'Switch', exact: true }).click()
+  await confirmation.getByRole('button', { name: 'Confirm operation', exact: true }).click()
+  await expect(topic).toContainText('Current branch')
+  expect(git('branch', '--show-current').trim()).toBe('ui-topic')
+  expect(git('rev-parse', 'HEAD')).toBe(initialHead)
+  expect(readFileSync(join(root, 'sample.ts'), 'utf8')).toBe(working)
+  await expect(page.locator('.operation-progress')).toContainText('switch')
+})
+
+for (const choice of ['ours', 'theirs', 'manual'] as const) {
+  test(`resolves a real native merge conflict using ${choice} and continues the merge`, async ({ page }) => {
+    git('restore', 'sample.ts')
+    git('checkout', '-qb', 'ui-conflict-topic')
+    writeFileSync(join(root, 'sample.ts'), 'theirs from topic\n')
+    git('add', 'sample.ts'); git('commit', '-qm', 'Topic conflict fixture')
+    git('checkout', '-q', 'main')
+    writeFileSync(join(root, 'sample.ts'), 'ours from main\n')
+    git('add', 'sample.ts'); git('commit', '-qm', 'Main conflict fixture')
+    await page.goto(url)
+    await page.getByRole('button', { name: 'Git workflows', exact: true }).click()
+    const topic = page.locator('.workflow-list > div').filter({ has: page.getByText('ui-conflict-topic', { exact: true }) })
+    await topic.getByRole('button', { name: 'Merge', exact: true }).click()
+    await expect(page.getByRole('dialog')).toContainText('Confirm merge')
+    await page.getByRole('dialog').getByRole('button', { name: 'Confirm operation', exact: true }).click()
+    await expect(page.getByRole('alert')).toContainText('Git operation exited')
+    expect(git('ls-files', '--unmerged', '-z')).not.toBe('')
+    expect(git('show', ':2:sample.ts')).toBe('ours from main\n')
+    expect(git('show', ':3:sample.ts')).toBe('theirs from topic\n')
+    await page.getByRole('button', { name: 'File history & conflicts', exact: true }).click()
+    await page.getByLabel('Repository-relative file path', { exact: true }).fill('sample.ts')
+    await page.getByRole('button', { name: 'Resolve conflict', exact: true }).click()
+    await expect(page.getByLabel('Resolved file contents')).toHaveValue(/<<<<<<</)
+    const result = choice === 'manual' ? 'manually combined result\n' : choice === 'ours' ? 'ours from main\n' : 'theirs from topic\n'
+    if (choice === 'manual') {
+      await page.getByLabel('Resolved file contents').fill(result)
+      await page.getByRole('button', { name: 'Save result & mark resolved', exact: true }).click()
+    } else {
+      await page.getByRole('button', { name: `Accept ${choice} & mark resolved`, exact: true }).click()
+    }
+    await expect(page.locator('.conflict-columns')).toHaveCount(0)
+    expect(git('ls-files', '--unmerged', '-z')).toBe('')
+    expect(git('show', ':sample.ts')).toBe(result)
+    expect(readFileSync(join(root, 'sample.ts'), 'utf8')).toBe(result)
+    await page.getByRole('button', { name: 'Continue', exact: true }).click()
+    await expect(page.locator('.git-workflows').getByRole('status')).toContainText('Git operation completed.')
+    expect(git('rev-list', '--parents', '-1', 'HEAD').trim().split(/\s+/)).toHaveLength(3)
+    expect(git('show', 'HEAD:sample.ts')).toBe(result)
+  })
+}
+
+test('destructive cancellation preserves refs and a stale branch-deletion preview returns 409', async ({ page }) => {
+  git('branch', 'ui-delete-me')
+  const originalHead = git('rev-parse', 'HEAD')
+  const originalRefs = git('for-each-ref', '--format=%(refname)%00%(objectname)')
+  const originalIndex = git('diff', '--cached', '--binary')
+  await page.goto(url)
+  await page.getByRole('button', { name: 'Git workflows', exact: true }).click()
+  const branch = page.locator('.workflow-list > div').filter({ has: page.getByText('ui-delete-me', { exact: true }) })
+  await branch.getByRole('button', { name: 'Delete…', exact: true }).click()
+  const confirmation = page.getByRole('dialog')
+  await expect(confirmation).toContainText('ui-delete-me')
+  await confirmation.getByRole('button', { name: 'Cancel', exact: true }).click()
+  expect(git('rev-parse', 'HEAD')).toBe(originalHead)
+  expect(git('for-each-ref', '--format=%(refname)%00%(objectname)')).toBe(originalRefs)
+  expect(git('diff', '--cached', '--binary')).toBe(originalIndex)
+  expect(readFileSync(join(root, 'sample.ts'), 'utf8')).toBe(working)
+  await branch.getByRole('button', { name: 'Delete…', exact: true }).click()
+  await expect(confirmation).toBeVisible()
+  const externalEdit = working + 'const externalChange = true;\n'
+  writeFileSync(join(root, 'sample.ts'), externalEdit)
+  const rejected = page.waitForResponse(response => response.url().endsWith('/api/actions/start') && response.request().method() === 'POST')
+  await confirmation.getByRole('button', { name: 'Confirm operation', exact: true }).click()
+  const response = await rejected
+  expect(response.status()).toBe(409)
+  await expect(page.getByRole('alert')).toContainText('changed since preview')
+  expect(git('rev-parse', 'HEAD')).toBe(originalHead)
+  expect(git('for-each-ref', '--format=%(refname)%00%(objectname)')).toBe(originalRefs)
+  expect(git('diff', '--cached', '--binary')).toBe(originalIndex)
+  expect(readFileSync(join(root, 'sample.ts'), 'utf8')).toBe(externalEdit)
 })

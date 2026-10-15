@@ -36,7 +36,11 @@ impl Git {
             commands: Vec::new(),
         }
     }
-    pub(crate) fn run(&mut self, args: &[&str], input: Option<&[u8]>) -> Result<std::process::Output> {
+    pub(crate) fn run(
+        &mut self,
+        args: &[&str],
+        input: Option<&[u8]>,
+    ) -> Result<std::process::Output> {
         let command = self.repo.command(args);
         let argv = std::iter::once(command.get_program())
             .chain(command.get_args())
@@ -847,6 +851,7 @@ pub struct CommitRequest {
 }
 
 pub fn commit(repo: Repo, request: CommitRequest, executable: &Path) -> Result<Value> {
+    let repo = repo.refreshed_head()?;
     use std::io::Write;
     ensure!(
         !request.message.trim().is_empty() && !request.message.contains('\0'),

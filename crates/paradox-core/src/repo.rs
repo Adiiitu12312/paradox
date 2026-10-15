@@ -44,6 +44,23 @@ fn rename_records(output: &[u8]) -> Result<Vec<(String, String)>> {
 }
 
 impl Repo {
+    /// Refresh mutable HEAD for a long-lived UI session, retaining the rooted
+    /// repository/worktree identity and without consulting process cwd anew.
+    pub fn refreshed_head(mut self) -> Result<Self> {
+        let output = crate::git::output_bounded(
+            self.command(&["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]),
+            None,
+            65_536,
+        )?;
+        if output.status.code() == Some(1) {
+            self.head.clear();
+        } else {
+            ensure!(output.status.success(), "Cannot refresh current repository HEAD: {}", String::from_utf8_lossy(&output.stderr));
+            self.head = std::str::from_utf8(&output.stdout)?.trim().to_owned();
+        }
+        Ok(self)
+    }
+
     pub fn discover(globals: &[OsString]) -> Result<Self> {
         let mut args = globals.to_vec();
         args.extend(

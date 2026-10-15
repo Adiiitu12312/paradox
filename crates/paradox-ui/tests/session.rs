@@ -60,14 +60,25 @@ impl Session {
         format!("http://{}{path}", self.ready.address)
     }
     fn git(&self, args: &[&str]) {
-        let output = Command::new("git").args(args)
+        let output = Command::new("git")
+            .args(args)
             .current_dir(self._directory.path())
             .env("GIT_CONFIG_NOSYSTEM", "1")
-            .env("GIT_CONFIG_GLOBAL", self._directory.path().join("no-global"))
-            .env("GIT_AUTHOR_NAME", "Paradox Test").env("GIT_AUTHOR_EMAIL", "test@example.invalid")
-            .env("GIT_COMMITTER_NAME", "Paradox Test").env("GIT_COMMITTER_EMAIL", "test@example.invalid")
-            .output().unwrap();
-        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+            .env(
+                "GIT_CONFIG_GLOBAL",
+                self._directory.path().join("no-global"),
+            )
+            .env("GIT_AUTHOR_NAME", "Paradox Test")
+            .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
+            .env("GIT_COMMITTER_NAME", "Paradox Test")
+            .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
+            .output()
+            .unwrap();
+        assert!(
+            output.status.success(),
+            "{}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
     fn commit_fixture(&self) {
         self.git(&["config", "commit.gpgsign", "false"]);
@@ -77,9 +88,14 @@ impl Session {
         self.git(&["commit", "-qm", "fixture"]);
     }
     async fn post(&self, path: &str, body: serde_json::Value) -> reqwest::Response {
-        self.client.post(self.url(path)).header("cookie", &self.cookie)
+        self.client
+            .post(self.url(path))
+            .header("cookie", &self.cookie)
             .header("origin", format!("http://{}", self.ready.address))
-            .json(&body).send().await.unwrap()
+            .json(&body)
+            .send()
+            .await
+            .unwrap()
     }
     async fn websocket(
         &self,
@@ -215,20 +231,36 @@ async fn typed_action_streams_native_result_and_confirmation_cannot_be_reused() 
     let preview = session.post("/api/actions/preview", action.clone()).await;
     assert_eq!(preview.status(), StatusCode::OK);
     let plan: serde_json::Value = preview.json().await.unwrap();
-    let request = serde_json::json!({"action":action,"confirmation_token":plan["confirmation_token"]});
+    let request =
+        serde_json::json!({"action":action,"confirmation_token":plan["confirmation_token"]});
     let started = session.post("/api/actions/start", request.clone()).await;
     assert_eq!(started.status(), StatusCode::OK);
     let started: serde_json::Value = started.json().await.unwrap();
     let id = started["operation_id"].as_str().unwrap();
-    let transcript = session.client.get(session.url(&format!("/api/operations/{id}/events")))
-        .header("cookie", &session.cookie).send().await.unwrap().text().await.unwrap();
+    let transcript = session
+        .client
+        .get(session.url(&format!("/api/operations/{id}/events")))
+        .header("cookie", &session.cookie)
+        .send()
+        .await
+        .unwrap()
+        .text()
+        .await
+        .unwrap();
     assert!(transcript.contains("\"type\":\"command\""));
     assert!(transcript.contains("\"type\":\"completed\""));
     assert!(transcript.contains("\"ok\":true"), "{transcript}");
     session.git(&["rev-parse", "--verify", "refs/heads/feature"]);
-    assert_eq!(session.post("/api/actions/start", request).await.status(), StatusCode::CONFLICT);
+    assert_eq!(
+        session.post("/api/actions/start", request).await.status(),
+        StatusCode::CONFLICT
+    );
     socket.close(None).await.unwrap();
-    tokio::time::timeout(Duration::from_secs(10), session.task).await.unwrap().unwrap().unwrap();
+    tokio::time::timeout(Duration::from_secs(10), session.task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
 }
 
 #[tokio::test]
@@ -238,7 +270,8 @@ async fn closing_last_tab_cancels_and_reaps_a_git_hook_operation() {
     session.git(&["branch", "feature"]);
     let hook = session._directory.path().join(".git/hooks/post-checkout");
     std::fs::write(&hook, "#!/bin/sh\nprintf 'hook is running\\n'\nsleep 60\n").unwrap();
-    #[cfg(unix)] {
+    #[cfg(unix)]
+    {
         use std::os::unix::fs::PermissionsExt;
         std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
@@ -247,21 +280,45 @@ async fn closing_last_tab_cancels_and_reaps_a_git_hook_operation() {
     let preview = session.post("/api/actions/preview", action.clone()).await;
     assert_eq!(preview.status(), StatusCode::OK);
     let plan: serde_json::Value = preview.json().await.unwrap();
-    let started = session.post("/api/actions/start", serde_json::json!({"action":action,"confirmation_token":plan["confirmation_token"]})).await;
+    let started = session
+        .post(
+            "/api/actions/start",
+            serde_json::json!({"action":action,"confirmation_token":plan["confirmation_token"]}),
+        )
+        .await;
     assert_eq!(started.status(), StatusCode::OK);
     let started: serde_json::Value = started.json().await.unwrap();
     let id = started["operation_id"].as_str().unwrap();
-    let mut response = session.client.get(session.url(&format!("/api/operations/{id}/events")))
-        .header("cookie", &session.cookie).send().await.unwrap();
+    let mut response = session
+        .client
+        .get(session.url(&format!("/api/operations/{id}/events")))
+        .header("cookie", &session.cookie)
+        .send()
+        .await
+        .unwrap();
     let mut transcript = String::new();
     tokio::time::timeout(Duration::from_secs(10), async {
         while !transcript.contains("hook is running") {
-            let chunk = response.chunk().await.unwrap().expect("operation exited before hook");
+            let chunk = response
+                .chunk()
+                .await
+                .unwrap()
+                .expect("operation exited before hook");
             transcript.push_str(&String::from_utf8_lossy(&chunk));
         }
-    }).await.unwrap();
+    })
+    .await
+    .unwrap();
     socket.close(None).await.unwrap();
     // The SSE response stays open: shutdown must end the job before draining connections.
-    tokio::time::timeout(Duration::from_secs(10), async { while response.chunk().await.unwrap().is_some() {} }).await.unwrap();
-    tokio::time::timeout(Duration::from_secs(10), session.task).await.unwrap().unwrap().unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while response.chunk().await.unwrap().is_some() {}
+    })
+    .await
+    .unwrap();
+    tokio::time::timeout(Duration::from_secs(10), session.task)
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
 }
