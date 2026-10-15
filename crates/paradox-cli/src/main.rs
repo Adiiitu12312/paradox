@@ -14,6 +14,8 @@ use paradox_cli::dispatch::{Route, force_git_args, route};
 struct Help {}
 
 fn main() {
+    // Raw OS argv routing comes first. Clap is constructed only for owned help;
+    // pass-through never initializes a store, configuration, or logging.
     let args: Vec<OsString> = std::env::args_os().skip(1).collect();
     let result = match route(&args) {
         Route::Help => {

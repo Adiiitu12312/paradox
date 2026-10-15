@@ -1,0 +1,3 @@
+# Use --target (or CARGO_BUILD_TARGET) so host proc macros keep their host CRT.
+[target.'cfg(all(windows, target_env = "msvc"))']
+rustflags = ["-C", "target-feature=+crt-static"]

@@ -10,8 +10,16 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
+        include:
+          - os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+          - os: macos-latest
+            target: aarch64-apple-darwin
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
+    env:
+      CARGO_BUILD_TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -28,16 +36,16 @@ jobs:
           python -m pip install --only-binary=:all: "pywinpty>=3,<4"
       - name: Verify Windows terminal colors, pager, editor and Ctrl+C
         if: runner.os == 'Windows'
-        run: python scripts/test_terminal.py target/release/paradox.exe
+        run: python scripts/test_terminal.py target/${{ matrix.target }}/release/paradox.exe
       - name: Verify terminal colors, pager, editor and Ctrl+C
         if: runner.os != 'Windows'
-        run: python3 scripts/test_terminal.py target/release/paradox
+        run: python3 scripts/test_terminal.py target/${{ matrix.target }}/release/paradox
       - uses: actions/upload-artifact@v4
         with:
           name: paradox-${{ runner.os }}-${{ runner.arch }}
           path: |
-            target/release/paradox
-            target/release/paradox.exe
+            target/${{ matrix.target }}/release/paradox
+            target/${{ matrix.target }}/release/paradox.exe
           if-no-files-found: error
           retention-days: 7
       - run: cargo test --release --test performance --locked -- --ignored --nocapture

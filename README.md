@@ -3,7 +3,7 @@
 A Rust Git wrapper that will add local per-file loops and a browser Git UI.
 Git remains the source of truth; every Git operation uses the installed Git binary.
 
-**Development status: M1 implemented; Windows latency acceptance is open.**
+**Development status: M1 Windows timing exception accepted; M2 is next.**
 See the [M1 verification report](docs/milestones/M1.md) for measured results.
 This build implements the workspace and
 dispatcher. Loop storage, automatic capture, auto-staging commits and the UI are
@@ -41,6 +41,11 @@ The binary is `target/release/paradox` (`paradox.exe` on Windows). It requires t
 real Git executable on PATH. Shell aliases named `git` do not affect subprocess
 resolution. Do not replace the Git executable with Paradox or create a `git`
 executable shim pointing back to Paradox.
+
+On Windows use `cargo build --release --target x86_64-pc-windows-msvc`.
+The binary is then under `target/x86_64-pc-windows-msvc/release/`. Explicit target
+selection keeps host proc macros separate from the static Windows CRT build.
+Release builds use fat LTO, one codegen unit, abort-on-panic and stripped symbols.
 
 ```text
 paradox status
@@ -87,9 +92,17 @@ cargo test --release --test performance --locked -- --ignored --nocapture
 cargo audit
 ```
 
-The release performance test alternates 101 pairs after warmup and fails if the
-median of the signed paired Git/Paradox time differences reaches 5 ms. It measures both
-`--version` and status in a temporary repo. Timing varies with machine load.
+Goal G3 in the [project brief](docs/PROJECT_BRIEF.md) requires under 5 ms median
+pass-through overhead on Linux/macOS and under 20 ms on Windows. Unix replaces
+the process with `exec`; Windows has no `exec` and must spawn Git and wait to
+preserve its terminal behavior and exit code. The Windows exception was accepted
+on October 15, 2026; loop capture performance targets are unchanged.
+
+The release test measures 101 alternating pairs after warmup for both version and
+status, on all three OSes. [Stored baselines](benchmarks/passthrough.csv) also catch
+regressions: the ceiling is the smaller of the OS limit and the recorded baseline
+plus 50% and 1 ms scheduling allowance. Point observations are recorded separately;
+the allowance avoids treating ordinary shared-runner jitter as a code regression.
 
 CI is configured for Windows, macOS and Linux. A local Windows test run is not
 evidence that those remote jobs have run. Terminal interaction and signal delivery
@@ -104,7 +117,7 @@ node scripts/benchmark_host.mjs /absolute/path/to/paradox
 ```
 
 This script also uses a new temporary repository outside the project and removes
-that repository on exit. It fails if measured paired overhead reaches 5 ms.
+that repository on exit. It enforces the same stored per-OS ceiling.
 
 ## Milestone order
 

@@ -1,0 +1,213 @@
+# PROJECT BRIEF: PARADOX
+
+I am not a Rust developer. You write, build, test, and debug everything. Work autonomously, fix errors without asking me, and stop only at milestone boundaries (or if a product decision genuinely blocks you). This tool will sit on top of my real source history, so correctness and data safety outrank speed and features.
+
+## 1. WHAT WE ARE BUILDING
+
+Paradox is a single Rust binary, `paradox`, that is a drop-in replacement for the `git` command with three additions:
+1. Loops: a cheap, local, automatic safety net that records the state of individual files between Git commits, so a single file can be rewound to "5 minutes ago" without touching anything else. A "loop" is one saved version of one file at one moment, with a message, a time, and the Git commit it was made on.
+2. A few Git-workflow conveniences (`paradox commit` auto-stages).
+3. A full Git-level graphical UI in the browser (`paradox ui`) that also shows the per-file loop timelines.
+
+Git remains the source of truth for history. Paradox never replaces, forks, patches, or reimplements Git; it shells out to the real `git` binary for every Git operation.
+
+Naming note: the user-facing term is "loop" everywhere (CLI, UI, docs, error messages). Do not use the words "checkpoint", "snapshot" or "echo" in user-facing text. Internally, code may use `Loop`, `LoopStore`, etc.
+
+## 2. THE PROBLEM
+
+- AI coding tools make many rapid edits. Sometimes one edit breaks a file that worked 5 minutes ago. Git only records what I explicitly commit, so there is nothing to roll back to between commits. Undoing by hand or by Git means either losing good work in other files or reconstructing from memory.
+- Rolling back the whole repo is too coarse. Typically one file (e.g. the backend) was broken while others (e.g. the UI) are correct and should stay.
+- Linear, repo-wide histories become a mess when 5-6 files change in the same minute. History has to be per file.
+- The repo is a large monorepo (about 5-6 GB of Git history, growing roughly 200-300 MB/day, 70-80 commits/day from me, my co-founder, and AI agents). Any new tool must add near-zero overhead to normal Git usage and must not add its own unbounded storage growth.
+- I will not run an always-on background process: it wastes RAM while nobody is coding. Capturing loops must therefore be triggered by events (a save), not by watching.
+
+## 3. GOALS AND OUTCOMES (what "done" means)
+
+G1. Git parity: I can `alias git=paradox` and notice nothing different for every Git command except the documented exceptions (`paradox commit` auto-stages; `paradox init` also sets up Paradox).
+G2. Per-file safety net: any tracked file can be listed, compared, and rewound to any loop since the last 3 commits, in seconds, without affecting other files.
+G3. Cheap: pass-through Git commands add under 5 ms median overhead on Linux/macOS and under 20 ms median overhead on Windows (which must spawn/wait because Windows has no exec). Saving one loop takes under 50 ms. Local loop storage is bounded by a hard cap (default 500 MB) and by the rolling 3-commit retention. Zero RAM and zero CPU when nothing is being saved.
+G4. Safe: Paradox never modifies working files except through an explicit rewind (which is itself undoable), never leaks loop metadata into Git commits, never stores secrets, and never corrupts the loop store on crash or concurrent use.
+G5. Visible: `paradox ui` gives a full Git GUI (graph, staging, branches, merges, stash, remotes, blame, conflict resolution) plus per-file loop timelines with two-point compare and one-click rewind.
+G6. Automatic: after one `paradox init`, pressing Ctrl+S in the editor (and every AI edit in Claude Code) creates a loop with no manual command, and the first line of the file is used as the loop message.
+G7. Future-ready: storage sits behind a trait so a cloud backend can be added later without rewriting anything.
+
+NON-GOALS (do not build): a background daemon or file-system watcher; a cloud backend (v1 is local only); fixing or shrinking the existing repo bloat (a separate problem); interactive rebase in the UI (CLI only); replacing Git's object model; a custom editor plugin or extension (we only configure existing editors' built-in or third-party run-on-save features).
+
+## 4. KEY USER WORKFLOWS (these become the acceptance tests)
+
+W1. AI breaks a file: I run `paradox loops backend/api.ts`, see loops with messages and times, run `paradox compare backend/api.ts 10m` to compare with 10 minutes ago, run `paradox rewind backend/api.ts 10m`. Only that file changes; the safety loop taken before the rewind lets me undo the rewind (`paradox rewind backend/api.ts undo`).
+W2. Save messages: I put `//> fix button padding` on line 1 of a file and press Ctrl+S. A loop is created automatically with the message "fix button padding". If I do not change line 1 before the next save, the old message is NOT reused; that loop gets an auto-label like "+12 -3". When I commit, the `//>` line is removed from what Git records, while my working file is untouched.
+W3. Commit: `paradox commit -m "msg"` stages everything and commits. `paradox commit a.ts b.ts -m "msg"` commits only those files. Afterwards, loops older than the 3rd most recent commit are purged (pinned ones survive).
+W4. Browsing: `paradox timeline` shows a picker of files that are uncommitted or changed in the last 3 commits; choosing one shows that file's loops.
+W5. Ignoring noise: pasting a huge new folder into the repo produces no scanning, no warnings, no loops, until I run `paradox track <path>` or `git add` it.
+W6. UI: `paradox ui` opens the browser; I stage individual hunks, commit, switch branches, resolve a merge conflict, and open a file's loop timeline, click two dots, see a side-by-side compare, and rewind.
+W7. Plain Git: `paradox status`, `paradox log --graph`, `paradox diff`, `paradox show`, `paradox rebase -i`, `paradox stash`, `paradox gc`, `paradox -C ../other-repo status`, `paradox -c user.name=x commit ...` all behave exactly like git (except `commit`, which auto-stages).
+W8. Automatic capture: after `paradox init`, saving a tracked file in VS Code/Cursor with Ctrl+S, or editing it through Claude Code, creates a loop without me running anything. With no editor open and no AI running, no Paradox process exists.
+
+## 5. DESIGN PRINCIPLES
+
+1. Git is the source of truth; Paradox is a sidecar. Shell out to the real `git` binary (never libgit2/gitoxide) so behavior is identical by construction.
+2. No daemon, no background process, no file watching. Everything runs on demand, like Git, or is triggered by an editor/AI save event and exits within milliseconds. The only long-running process is the temporary localhost server while `paradox ui` is open.
+3. Zero cost when unused: pass-through commands do no Paradox work (no scan, no database open).
+4. Never destructive without a way back: rewinds and UI discards take a safety loop first.
+5. Failures in the loop layer are logged, never fatal, and never block a Git command or an editor save.
+6. Untracked is ignored: Paradox only tracks files in `git ls-files` plus explicitly added paths.
+7. Boring and reliable over clever: atomic writes, WAL-mode SQLite, small modules, heavy tests.
+8. No command name Paradox owns may shadow a Git subcommand, except the two documented exceptions (`commit`, `init`).
+
+## 6. ENVIRONMENT SETUP (do this first)
+
+Detect my OS, check for and install anything missing:
+- Rust via rustup (stable toolchain with cargo, rustfmt, clippy). Windows: also MSVC C++ Build Tools. macOS: `xcode-select --install`. Linux: build-essential, pkg-config.
+- Node.js LTS (to build the UI frontend).
+- Git (must already exist; verify, and record the version).
+Verify with `rustc --version`, `cargo --version`, `node --version`, `git --version`. Create a throwaway test repository OUTSIDE the project directory and do ALL testing there. Never run Paradox against my real repositories during development.
+
+## 7. ARCHITECTURE
+
+Cargo workspace:
+- paradox-core: git runner (spawn git, capture output, parse porcelain formats), loop store, SQLite index, stat-cache scanner, looper (creates loops), comparer, rewinder, purger/evictor, message parser, commit-time stripper, editor-config writer, config. No CLI or HTTP concerns.
+- paradox-cli: argv dispatcher, clap-based Paradox subcommands, pass-through exec, hook entry points, interactive picker.
+- paradox-ui: axum server, JSON API, embedded frontend (React + Vite + TypeScript, Monaco editor and DiffEditor, built and embedded via rust-embed).
+The CLI and UI call the same core functions.
+
+Crates: clap, rusqlite (bundled), zstd, blake3, similar, inquire, anyhow, thiserror, serde, serde_json, toml, axum, tokio, rust-embed, fs2 (file locking), tempfile (tests), proptest (tests), assert_cmd and predicates (tests).
+
+Storage trait (abstract so cloud can be added later):
+  trait BlobStore { put(hash, bytes), get(hash) -> bytes, delete(hash), exists(hash) }
+  LocalStore implements it over .paradox/blobs/<first2>/<rest-of-blake3-hex>, zstd-compressed, written atomically (temp file + fsync + rename).
+
+SQLite schema (WAL mode, busy timeout, schema_version table with migrations):
+  loops(id INTEGER PK, path TEXT, blob_hash TEXT, ts INTEGER, message TEXT, auto_label INTEGER, head_sha TEXT, pinned INTEGER, size INTEGER, kind TEXT)   -- kind: 'save' | 'safety' | 'scan'
+  stat_cache(path TEXT PK, mtime_ns INTEGER, size INTEGER, last_hash TEXT)
+  meta(key TEXT PK, value TEXT)
+  Index on (path, ts) and on head_sha.
+
+Config: .paradox/config.toml with defaults: size_limit_bytes=2097152, store_cap_bytes=524288000, retention_commits=3, secrets_denylist=[".env*","*.pem","*.key","id_rsa*"], safety_loop_commands=[] (opt-in list such as ["reset","checkout","restore","clean","stash","rebase","merge","pull"] that make a loop of uncommitted tracked changes before the destructive Git command runs; default off to keep pass-through zero cost).
+
+## 8. THE DISPATCHER (get this exactly right)
+
+- Parse argv the way Git does: skip Git global options that come before the subcommand (`-C <path>`, `-c <k=v>`, `--git-dir=`, `--work-tree=`, `--namespace=`, `--no-pager`, `-p/--paginate`, `--bare`, `--no-replace-objects`, `--exec-path`, `--html-path`, `--version`, `--help`, etc.) to find the real subcommand.
+- Paradox-owned subcommands: `commit`, `init`, `ui`, `git`, `loop`, `loops`, `compare`, `rewind`, `timeline`, `pin`, `unpin`, `track`, `untrack`. Handle these. For anything else, execute `git` with the ORIGINAL arguments untouched.
+- Pass-through behavior: identical stdin/stdout/stderr, exit code, colors, pager, TTY detection, signals (Ctrl+C), and environment. On Unix use exec (replace the process). On Windows spawn with inherited handles and forward the exit code.
+- `paradox git <args>` always forces pure pass-through (even for `commit` and `init`).
+- `paradox --help` documents the Paradox additions and states that everything else is Git.
+- If the git binary is not found, print a clear error.
+- Collision guard: a test must run `git help -a` (and `git --list-cmds=main,others,alias`) and fail if any Paradox-owned name other than `commit` and `init` is also a Git subcommand.
+
+## 9. COMMANDS
+
+Git-wrapper conveniences
+- `paradox commit [flags] -m "msg"`: run `git add -A`, then `git commit` with the same flags. (Documented exception to Git parity.) Then run the purge.
+- `paradox commit <file...> -m "msg"` (also accept `paradox <file> commit -m "msg"`): `git add <file...>` then `git commit <file...> -m "msg"`. Only those files.
+- `paradox pull`, `paradox push`, `paradox diff`, `paradox show`, `paradox log`, `paradox gc`, and everything else: pure Git.
+Loop commands (all top-level, none shadow Git)
+- `paradox loop [file...]`: save a loop now for the given tracked files, or all tracked files that changed. This is what the editor and AI hooks run on every save. Must complete in under 50 ms for one file and exit. Never prompts, never fails the caller (exit 0 on non-critical errors, logging to .paradox/log). Flags: `--gc` runs purge, eviction, and orphan-blob cleanup now; `--stats` prints store size, loop counts, oldest loop.
+- `paradox loops <file>`: that file's loops (id, relative and absolute time, message, kind, pinned flag), newest first, with the committed (HEAD) version shown as the oldest entry.
+- `paradox compare <file>`: working file vs its latest loop. `paradox compare <file> <a> <b>`: two versions. a/b accept a loop id, a relative time ("10m", "2h"), a message substring (error if ambiguous), `HEAD`, or `working`. Unified diff via the `similar` crate, colorized on TTY.
+- `paradox timeline`: interactive picker (`inquire`) over files that are uncommitted (`git status --porcelain=v2`) OR changed in the last 3 commits (`git diff --name-only HEAD~3`; if fewer than 3 commits exist, diff against the root; if there are no commits, only uncommitted files). Selecting a file opens its `loops` view.
+- `paradox rewind <file> <id|10m|HEAD|undo>`: restore only that file. First make a safety loop of the current state (kind='safety', message "before rewind"), then write the file atomically. `undo` rewinds to the most recent safety loop for that file.
+- `paradox rewind --at HH:MM`: rewind all tracked files to their state at that time, with safety loops. Show a dry-run list and require confirmation (`--yes` to skip).
+- `paradox pin <id>` / `paradox unpin <id>`: protect a loop from purge and eviction.
+- `paradox track <path>` / `paradox untrack <path>`: add/remove paths from the tracked set beyond `git ls-files`.
+Setup and UI
+- `paradox init`: (documented exception) run `git init` if not already a repo; create `.paradox/`, add it to `.git/info/exclude`, install hooks, and configure automatic loop capture (see section 10, Capture). Idempotent. `paradox init --uninstall` removes hooks and the editor/AI config entries that Paradox added.
+- `paradox ui`: launch the UI.
+
+## 10. LOOP SEMANTICS (details that must be right)
+
+Capture (how loops get created, with no background process)
+- Triggered by events, each of which runs `paradox loop <file>` and exits:
+  1. Editor save: `paradox init` merges (never overwrites) a Run-on-Save entry into `.vscode/settings.json` (extension emeraldwalk.runonsave, command `paradox loop "${file}"`), and adds that extension to `.vscode/extensions.json` recommendations. Works in VS Code and Cursor.
+  2. AI edits: `paradox init` merges a PostToolUse hook for Edit/Write/MultiEdit into `.claude/settings.json` running `paradox loop "$file"`.
+  3. Other editors: `paradox init --print-editor-config neovim|jetbrains|sublime` prints the snippet (Neovim BufWritePost autocmd, JetBrains File Watcher, etc.).
+- Fallback scan: every Paradox command that touches loops, and the pre-commit hook, first runs a Git-style stat scan over the tracked set and makes a loop (kind='scan') for any tracked file changed since its last loop. Worst case, intermediate saves are lost, never the final state.
+- Baseline: the committed (HEAD) version of a file counts as its oldest loop for `loops`, `compare` and `rewind`. Do not snapshot the whole repo at init.
+- Optional and NOT in v1: a manually started `paradox watch`. Do not build it.
+Tracked set: `git ls-files` plus `track` paths. Untracked files and new directories are ignored entirely and never scanned.
+Change detection (Git-style): compare mtime_ns and size against stat_cache; hash with blake3 only if they differ. Pass-through commands never scan.
+Dedup: skip making a loop if the hash equals that file's latest loop (editors with autosave must not inflate storage).
+Skips: binary files (NUL byte in first 8 KB), files over size_limit, and denylisted secrets. Never store secrets.
+Messages: if line 1 matches `^(//|#|--|;|%)>\s*(.*)`, group 2 is the message, but ONLY if line 1 differs from the previous loop's line 1. Otherwise auto-label (e.g. "+12 -3" from the diff stats). If line 1 is a shebang or `<?php`, use line 2 instead. Formats without comments (JSON) always auto-label. Never read any other line. Handle CRLF.
+Commit-time stripping: the marker line must never reach Git, and the working file must never change. In the pre-commit hook and in `paradox commit`, for each staged file whose message line is present, compute the stripped content, write it with `git hash-object -w --stdin`, and stage it with `git update-index --cacheinfo <mode>,<sha>,<path>`. Preserve file mode and line endings. Files without markers are untouched; the hook must be a fast no-op when no staged file has a marker.
+Purge: post-commit hook and `paradox commit` delete unpinned loops recorded before the 3rd most recent commit (by recorded head_sha ancestry/commit time), then delete orphaned blobs. Retain everything for current uncommitted work and the last 3 commits.
+Eviction: if store size exceeds store_cap_bytes, evict the oldest unpinned loops first until under 90% of the cap.
+Renames: Git renames keep history if detected by `git status` rename info; otherwise history stays under the old path (document this). Deleted files keep their loops until purge.
+Branch switches and history rewrites: loops are keyed by path and carry head_sha for provenance; they do not move with branches. Document this behavior.
+Hooks: install into the active hooks directory (respect `core.hooksPath`). If a hook already exists, chain it (run the existing hook first, then Paradox), never overwrite.
+Safety loops (opt-in for Git commands): if `safety_loop_commands` lists a Git subcommand and the user runs it via `paradox`, make loops of modified tracked files (via `git diff --name-only`) before executing it.
+Concurrency and crash safety: take an advisory file lock on `.paradox/lock` for writes; SQLite WAL with busy timeout; all blob and file writes are temp+fsync+rename; any partially written state must be recoverable by `paradox loop --gc`. Multiple worktrees share one `.paradox` via the common git dir, with per-worktree paths stored relative to the worktree root.
+
+## 11. THE UI (`paradox ui`)
+
+Server: axum bound to 127.0.0.1 on a random free port; random per-session token required on every request; strict Host-header and Origin checks (DNS-rebinding protection); no CORS; opens the default browser; exits on Ctrl+C or when the last tab disconnects. Frontend is embedded in the binary.
+All Git actions call the real `git` through the same core runner as the CLI. Parse machine-readable output only (`status --porcelain=v2 -z`, `log` with custom --format and NUL separators, `for-each-ref`, `diff --numstat -z`, `blame --porcelain`). Never parse human-formatted output.
+Git features:
+- Commit graph with branch/merge lanes, tags, remote refs, HEAD marker. Virtualized and paginated (load pages of ~200 commits via `--skip/--max-count` or cursor); must stay smooth on a repo with 100k+ commits and 6 GB of history. Never load full history.
+- Working tree: changed/untracked list, stage/unstage whole files and individual hunks or lines (via `git apply --cached` with generated patches), discard with confirm, commit box with amend.
+- Branches: create, checkout, rename, delete (with unmerged warning), merge, rebase (non-interactive), cherry-pick, revert. Tags: create/delete. Stash: list, apply, pop, drop, create.
+- Remotes: fetch, pull, push with live progress output. Force push is `--force-with-lease` only, never plain `--force`.
+- Commit detail: file list, side-by-side diff (Monaco DiffEditor), blame, per-file history.
+- Merge conflict resolver: three-way view (ours/theirs/result), accept-either, manual edit, mark resolved.
+- Interactive rebase: out of scope for v1; show a clear message pointing to the CLI.
+Loop features:
+- File panel (uncommitted + last-3-commit files). Selecting a file shows its loop timeline: dots labelled with messages, commit boundaries as vertical dividers, pinned icon, the HEAD version as the first dot. Click one dot to compare against the working file; click two to compare them; rewind button with confirm; pin/unpin.
+- Final milestone: an all-files swimlane view (one lane per file on a shared time axis) with "rewind all files to this timestamp" (dry-run preview, confirm).
+Safety and transparency: every destructive action (discard, reset, branch delete, force push, rewind) shows a confirm dialog listing exactly what will be lost, makes a safety loop where possible, and shows a reflog hint otherwise. A collapsible command log panel shows the exact `git` command executed for every action. Respect light/dark system theme.
+JSON API (all under /api, token-protected): GET /status, GET /graph?cursor=, GET /commit/:sha, GET /diff, POST /stage, POST /unstage, POST /commit, branch/tag/stash/remote endpoints, GET /loops/files, GET /loops/files/:path, GET /loops/compare?path=&a=&b=, POST /loops/rewind, POST /loops/pin. Long-running Git operations stream progress (SSE).
+
+## 12. TESTING (write these as you build; all must pass before each milestone is reported)
+
+Unit tests
+- Message parser: every comment style, stale-message rule (line 1 unchanged means auto-label), shebang and `<?php` line-2 rule, JSON/no-comment files, CRLF, empty files, very long lines, unicode. Use proptest to assert the parser never panics and never reads beyond line 1/2.
+- Dedup, size/binary/secret skipping, eviction ordering, pin protection, purge boundary (exactly the 3rd most recent commit), retention with fewer than 3 commits.
+- Tracked-set logic: untracked and new directories ignored; `track` adds; `untrack` removes.
+- Stat-cache: unchanged mtime/size causes no hashing; touch without content change causes hash but no new loop.
+- Stripper: strips only the marker line, preserves file mode, line endings, and trailing newline; no-op when no marker.
+- Dispatcher routing: table-driven tests over argv including `-C`, `-c`, `--git-dir`, `--no-pager`, `--version`, `-h`, `commit` vs `git commit`, `paradox <file> commit`, and Git subcommands that look similar to Paradox names (`diff`, `show`, `log`, `gc`, `restore`). Fuzz argv to ensure Git flags are never misparsed and original args reach git byte-for-byte.
+- Collision guard: Paradox-owned names (except `commit`, `init`) never appear in Git's command list.
+- Relative time and message-substring resolution for compare/rewind, including ambiguity errors and the `HEAD`, `working`, `undo` keywords.
+- Editor-config writer: `paradox init` merges into existing `.vscode/settings.json` and `.claude/settings.json` (including files with comments/trailing commas where the format allows), is idempotent, preserves unrelated settings, and `--uninstall` removes only what it added.
+Integration tests (assert_cmd, temp repos)
+- Parity: for a list of 40+ Git commands/flag combos (status, log --graph --oneline, diff, show, branch, stash, rebase non-interactive, cherry-pick, tag, config, gc, worktree add, submodule status, etc.), run `git X` and `paradox X` in identical repos and compare stdout, stderr, and exit codes.
+- Workflow tests W1-W8 above end to end, including: loop, edit, compare, rewind, undo-rewind; `paradox commit` then `git show HEAD` must NOT contain any `//>`-style marker line while the working file still does; purge removes only old unpinned loops; rewind touches only the named file; a simulated editor save (invoking the configured command) creates a loop with the line-1 message.
+- Hooks: install, chain with an existing hook, honor core.hooksPath, uninstall; raw `git commit` (not via paradox) still strips markers and purges.
+- Crash safety: kill the process mid-loop and mid-purge (inject failure points); the store must remain consistent and `paradox loop --gc` repairs it. Twenty concurrent `paradox loop` processes (several saves in one second) must not corrupt the index or lose the last save.
+- Worktrees and submodules do not break pass-through or loops.
+- Large file/binary/secret files never get loops.
+- No-daemon check: after any command exits, no Paradox process remains running (except while `paradox ui` is open).
+Performance benchmarks (fail the build on regression)
+- Pass-through overhead vs plain git under 5 ms median on Linux/macOS and under 20 ms on Windows; also enforce the stored per-OS regression baseline.
+- `paradox loop <file>` for one file under 50 ms median on a repo with 50,000 tracked files; full stat scan of 50,000 tracked files with a warm cache under 500 ms.
+- Synthetic large repo (use `git fast-import`, 100k+ commits, multi-GB if feasible, otherwise scaled with documented extrapolation): UI graph first page under 300 ms, smooth paging.
+UI tests
+- API tests for each endpoint against temp repos; token/Host/Origin rejection tests.
+- Frontend component tests (Vitest) and end-to-end flows (Playwright): stage a hunk, commit, create/switch branch, resolve a conflict, open a loop timeline, compare two loops, rewind.
+Quality gates
+- `cargo fmt --check`, `cargo clippy -- -D warnings`, `cargo test`, `cargo audit` or `cargo deny`, frontend lint and type-check, all green.
+- CI configuration (GitHub Actions) running the full suite on Windows, macOS, and Linux.
+
+## 13. MILESTONES AND ACCEPTANCE CRITERIA (stop after each; show a summary, demo output, and test results)
+
+M1. Setup + workspace + dispatcher. Accept: toolchain installed and verified; `paradox status`, `paradox log --graph`, `paradox diff`, `paradox rebase -i`, `paradox -C <dir> status` match git exactly (output, exit codes, colors, pager, editor); dispatcher tests, collision guard, and parity suite pass; overhead benchmark under 5 ms on Linux/macOS and under 20 ms on Windows.
+M2. Store + index + stat cache + `paradox loop`. Accept: message parsing, dedup, skip rules, atomic writes, WAL, locking; 50 ms single-file loop; concurrency and crash-safety tests pass.
+M3. `loops`, `compare`, `rewind` (including undo and `--at`), `pin`, `track`, `loop --gc/--stats`. Accept: W1 and W5 pass; rewind is undoable; rewind touches only the named file; HEAD baseline works.
+M4. `paradox init` with automatic capture (editor and AI hooks), `paradox commit` (+ `<file> commit`), git hooks, stripping, purge, eviction. Accept: W2, W3 and W8 pass; marker never appears in `git show HEAD`; hook chaining, core.hooksPath and editor-config tests pass; no-daemon check passes.
+M5. `paradox timeline` picker. Accept: W4 passes with 0, 1, 2, and 3+ commits.
+M6. UI part 1: server, security, commit graph, working tree, staging (files and hunks), commit, diff. Accept: API and Playwright tests; graph pages smoothly on the synthetic large repo.
+M7. UI part 2: branches, merge/rebase/cherry-pick/revert, stash, remotes with progress, blame, conflict resolver, destructive-action confirmations, command log panel.
+M8. UI part 3: loop timeline with one/two-point compare and rewind, then the swimlane view and rewind --at. Accept: W6 passes end to end.
+M9. Hardening: cross-platform CI green, README (install, quickstart, command reference, design notes, known limitations, how to alias git=paradox, how automatic capture works and how to set up other editors), release build instructions for a single binary per OS.
+
+## 14. WORKING AGREEMENT
+
+- Build in the order above. Do not skip ahead. Commit your own work frequently in the Paradox project repo with clear messages.
+- Never touch my real repositories during development. Use only the throwaway repo.
+- When something is ambiguous but low-stakes, choose the safest option, document it in the README, and keep going. Ask me only when a decision would change what the product does.
+- At each milestone report: what was built, what tests ran and their results, benchmark numbers, known issues, and what comes next.
+- If a requirement here conflicts with Git parity or data safety, prefer parity and safety, and tell me.
+
+## Accepted amendments (October 15, 2026)
+
+Build and test on GitHub Actions, using Git and gh. Do not install local Rust/C++ build tools or change system Node. Use aditya raj / Adiiitu12312 / en3my20@gmail.com for project commits. M1 accepts the Windows G3 timing exception described above. The stored observation allows 50% plus 1 ms scheduling variance, never above the OS limit. After M9, the optional session-only watch milestone is specified in docs/milestones/M10-optional-watch.md; this overrides the original exclusion only for that deferred milestone.
+

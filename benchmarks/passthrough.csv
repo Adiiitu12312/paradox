@@ -1,0 +1,4 @@
+os,baseline_ms,limit_ms
+linux,0.548266,5
+macos,2.741584,5
+windows,15.3758,20

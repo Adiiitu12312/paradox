@@ -14,7 +14,7 @@ tempfile = "3"
 proptest = "1"
 
 [profile.release]
-lto = "thin"
+lto = "fat"
 strip = true
 codegen-units = 1
 panic = "abort"

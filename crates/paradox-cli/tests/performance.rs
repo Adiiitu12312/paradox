@@ -23,7 +23,22 @@ fn elapsed(exe: &str, root: &std::path::Path, args: &[&str]) -> Duration {
 /// Run explicitly against release builds; ordinary unit tests do not time debug code.
 #[test]
 #[ignore = "release-only performance gate: cargo test --release --test performance -- --ignored --nocapture"]
-fn passthrough_overhead_below_five_ms() {
+fn passthrough_overhead_within_stored_baseline() {
+    // Windows has no exec: inherited-console spawn/wait is required for parity.
+    // G3 allows <20 ms there; Unix retains <5 ms. Also catch regressions against
+    // the stored observation, with 50% + 1 ms scheduling allowance, capped by G3.
+    let row = include_str!("../../../benchmarks/passthrough.csv")
+        .lines()
+        .find(|line| line.starts_with(&format!("{},", std::env::consts::OS)))
+        .expect("missing OS performance baseline");
+    let fields: Vec<_> = row.split(',').collect();
+    let baseline_ms: f64 = fields[1].parse().unwrap();
+    let limit_ms: f64 = fields[2].parse().unwrap();
+    let ceiling_ms = limit_ms.min(baseline_ms * 1.5 + 1.0);
+    let ceiling = Duration::from_secs_f64(ceiling_ms / 1000.0);
+    println!(
+        "OS limit={limit_ms} ms; stored baseline={baseline_ms} ms; regression ceiling={ceiling_ms} ms"
+    );
     let root = tempfile::tempdir().unwrap();
     assert!(
         Command::new("git")
@@ -65,10 +80,10 @@ fn passthrough_overhead_below_five_ms() {
         println!(
             "{args:?}: git median={git:?}, paradox median={paradox:?}, paired overhead={overhead:?}, n=101"
         );
-        below_limit &= overhead < Duration::from_millis(5);
+        below_limit &= overhead < ceiling;
     }
     assert!(
         below_limit,
-        "pass-through overhead exceeded 5 ms; see both measurements above"
+        "pass-through overhead exceeded its stored OS regression ceiling"
     );
 }

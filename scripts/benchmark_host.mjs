@@ -2,7 +2,7 @@
 // Every Paradox invocation uses a new OS temporary repository.
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve, sep } from 'node:path';
 
@@ -29,6 +29,10 @@ function git(...args) {
   assert.equal(result.status, 0, result.stderr.toString());
 }
 const median = values => values.toSorted((a, b) => a - b)[Math.floor(values.length / 2)];
+const os = { win32: 'windows', darwin: 'macos', linux: 'linux' }[process.platform];
+const row = readFileSync(new URL('../benchmarks/passthrough.csv', import.meta.url), 'utf8')
+  .split(/\r?\n/).find(line => line.startsWith(`${os},`)).split(',');
+const ceiling = Math.min(Number(row[2]), Number(row[1]) * 1.5 + 1);
 try {
   git('init', '-q', '--initial-branch=main');
   git('config', 'core.autocrlf', 'false');
@@ -59,9 +63,9 @@ try {
     }
     const overhead = Math.max(0, median(differences)) / 1e6;
     console.log(JSON.stringify({ args, git_ms: median(direct) / 1e6, paradox_ms: median(wrapped) / 1e6, paired_overhead_ms: overhead, pairs: 101 }));
-    passed &&= overhead < 5;
+    passed &&= overhead < ceiling;
   }
-  assert(passed, 'Median paired overhead exceeded 5 ms on this machine');
+  assert(passed, `Median paired overhead exceeded stored OS ceiling ${ceiling} ms`);
 } finally {
   assert(root.startsWith(tempParent + sep), 'Refusing to remove a path outside the temporary parent');
   rmSync(root, { recursive: true, force: true });
