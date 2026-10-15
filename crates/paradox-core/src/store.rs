@@ -59,8 +59,13 @@ pub fn now() -> Result<i64> {
 
 fn sql_size(row: &rusqlite::Row<'_>, column: usize) -> rusqlite::Result<u64> {
     let value: i64 = row.get(column)?;
-    u64::try_from(value).map_err(|error| rusqlite::Error::FromSqlConversionFailure(
-        column, rusqlite::types::Type::Integer, Box::new(error)))
+    u64::try_from(value).map_err(|error| {
+        rusqlite::Error::FromSqlConversionFailure(
+            column,
+            rusqlite::types::Type::Integer,
+            Box::new(error),
+        )
+    })
 }
 
 impl LoopStore {
@@ -88,8 +93,13 @@ impl LoopStore {
         let index = Connection::open(index_path)?;
         index.busy_timeout(Duration::from_secs(5))?;
         let application: i64 = index.query_row("PRAGMA application_id", [], |r| r.get(0))?;
-        ensure!(!existing || application == 0x50584431, "index is not a recognized Paradox store");
-        if !existing { index.execute_batch("PRAGMA application_id=1347961905;")?; }
+        ensure!(
+            !existing || application == 0x50584431,
+            "index is not a recognized Paradox store"
+        );
+        if !existing {
+            index.execute_batch("PRAGMA application_id=1347961905;")?;
+        }
         index.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
             CREATE TABLE IF NOT EXISTS schema_version(version INTEGER NOT NULL);",
@@ -178,7 +188,7 @@ impl LoopStore {
                     auto_label: r.get(5)?,
                     head_sha: r.get(6)?,
                     pinned: r.get(7)?,
-                    size: sql_size(r,8)?,
+                    size: sql_size(r, 8)?,
                     kind: r.get(9)?,
                 })
             })?
@@ -191,7 +201,7 @@ impl LoopStore {
             .query_row(
                 "SELECT mtime_ns,size,last_hash FROM stat_cache WHERE worktree=?1 AND path=?2",
                 params![self.repo.worktree, path],
-                |r| Ok((r.get(0)?, sql_size(r,1)?, r.get(2)?)),
+                |r| Ok((r.get(0)?, sql_size(r, 1)?, r.get(2)?)),
             )
             .optional()?)
     }
@@ -230,11 +240,11 @@ impl LoopStore {
         } else {
             self.repo.tracked(&selected)?.into_iter().collect()
         };
-        if !cached && !selected.is_empty() {
-            if let Some(signature) = signature {
-                for path in &tracked {
-                    self.index.execute("INSERT INTO tracked_cache VALUES(?1,?2,?3) ON CONFLICT(worktree,path) DO UPDATE SET fingerprint=excluded.fingerprint",params![self.repo.worktree,path,signature])?;
-                }
+        if !cached && !selected.is_empty()
+            && let Some(signature) = signature
+        {
+            for path in &tracked {
+                self.index.execute("INSERT INTO tracked_cache VALUES(?1,?2,?3) ON CONFLICT(worktree,path) DO UPDATE SET fingerprint=excluded.fingerprint",params![self.repo.worktree,path,signature])?;
             }
         }
         tracked.sort();
@@ -247,7 +257,7 @@ impl LoopStore {
                         "SELECT path,mtime_ns,size,last_hash FROM stat_cache WHERE worktree=?1",
                     )?
                     .query_map([&self.repo.worktree], |r| {
-                        Ok((r.get(0)?, (r.get(1)?, sql_size(r,2)?, r.get(3)?)))
+                        Ok((r.get(0)?, (r.get(1)?, sql_size(r, 2)?, r.get(3)?)))
                     })?
                     .collect::<rusqlite::Result<_>>()?,
             )
@@ -385,7 +395,8 @@ impl LoopStore {
                     self.blobs.delete(&hash)?;
                 }
                 if compact {
-                    self.index.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); VACUUM;")?;
+                    self.index
+                        .execute_batch("PRAGMA wal_checkpoint(TRUNCATE); VACUUM;")?;
                 }
             }
             Err(error) => {
@@ -408,9 +419,13 @@ impl LoopStore {
         // WAL is short-lived and truncated on successful command completion.
         let pages: u64 = self
             .index
-            .query_row("PRAGMA page_count", [], |r| sql_size(r,0))?;
-        let free: u64 = self.index.query_row("PRAGMA freelist_count", [], |r| sql_size(r,0))?;
-        let page_size: u64 = self.index.query_row("PRAGMA page_size", [], |r| sql_size(r,0))?;
+            .query_row("PRAGMA page_count", [], |r| sql_size(r, 0))?;
+        let free: u64 = self
+            .index
+            .query_row("PRAGMA freelist_count", [], |r| sql_size(r, 0))?;
+        let page_size: u64 = self
+            .index
+            .query_row("PRAGMA page_size", [], |r| sql_size(r, 0))?;
         let other: u64 = ["index.sqlite3-shm", "lock", "log", "config.toml"]
             .iter()
             .filter_map(|p| fs::metadata(self.repo.store.join(p)).ok())
@@ -423,7 +438,7 @@ impl LoopStore {
         let blobs: u64 = self.index.query_row(
             "SELECT CAST(value AS INTEGER) FROM meta WHERE key='blob_bytes'",
             [],
-            |r| sql_size(r,0),
+            |r| sql_size(r, 0),
         )?;
         Ok(blobs + self.metadata_bytes()?)
     }
