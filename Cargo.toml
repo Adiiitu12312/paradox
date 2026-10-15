@@ -18,3 +18,10 @@ lto = "fat"
 strip = true
 codegen-units = 1
 panic = "abort"
+
+# Preserve native FSEvents and timezone behavior while loading Apple's watch/
+# timezone frameworks only when needed. See each vendor package's patch notes.
+[patch.crates-io]
+fsevent-sys = { path = "vendor/fsevent-sys" }
+notify = { path = "vendor/notify" }
+iana-time-zone = { path = "vendor/iana-time-zone" }

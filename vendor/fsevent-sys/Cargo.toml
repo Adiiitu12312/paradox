@@ -10,5 +10,5 @@ repository = "https://github.com/octplane/fsevent-rust/tree/master/fsevent-sys"
 [dependencies]
 libc = "0.2.68"
 
-# Isolated prototype; not adopted by the parent workspace.
+# Isolated vendored package; patched by the parent workspace.
 [workspace]

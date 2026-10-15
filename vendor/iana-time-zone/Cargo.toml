@@ -84,7 +84,7 @@ version = ">=0.56, <=0.62"
 version = "0.8.6"
 default-features = false
 
-# Isolated diagnostic package; runner-only Cargo patch.
+# Isolated vendored package; patched by the parent workspace.
 [workspace]
 
 [target.'cfg(target_vendor = "apple")'.dependencies.libc]

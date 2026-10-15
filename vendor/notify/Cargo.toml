@@ -120,5 +120,5 @@ features = [
     "Win32_System_IO",
 ]
 
-# Isolated diagnostic package; runner-only Cargo patch.
+# Isolated vendored package; patched by the parent workspace.
 [workspace]

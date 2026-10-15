@@ -266,6 +266,19 @@ regressions: the ceiling is the smaller of the OS limit and the recorded baselin
 plus 50% and 1 ms scheduling allowance. Point observations are recorded separately;
 the allowance and two-of-three rule absorb shared-runner noise. OS thresholds
 remain 5 ms for Linux/macOS and 20 ms for Windows; baselines are not increased.
+New [pass-through observations](benchmarks/passthrough-observations.csv) and
+[capture observations](benchmarks/capture-observations.csv) record later results,
+including failures, separately from the immutable gate baselines. Full raw
+pass-through pairs are retained in each CI run's assessment artifacts.
+
+On macOS, FSEvents and local-timezone framework calls load on demand. Ordinary
+Git pass-through therefore avoids initializing those frameworks. The native
+watcher and timezone algorithms remain unchanged. The focused patches for
+`fsevent-sys` 4.1.0, `notify` 8.2.0 and `iana-time-zone` 0.1.65 are retained with
+their upstream licenses and patch notes under `vendor/`. Dependency updates must
+preserve those patches or replace them with an upstream equivalent; CI checks
+framework dependencies, native behavior and timing. The lockfile pins the tested
+versions. These patches do not change Linux or Windows native implementations.
 
 CI uses Windows, Linux and the fixed macOS 15 ARM64 runner, with the same strict
 macOS limits and stored baselines. The [M4 report](docs/milestones/M4.md) retains

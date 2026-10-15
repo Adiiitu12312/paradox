@@ -1,4 +1,4 @@
-// Diagnostic-only late-bound CoreFoundation API. Upstream ABI/types remain in
+// On-demand CoreFoundation API. Upstream ABI/types remain in
 // core_foundation.rs; references to exported DATA use their real native storage.
 use super::*;
 use std::ffi::{c_void, CStr};

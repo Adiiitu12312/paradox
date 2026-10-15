@@ -40,7 +40,14 @@ jobs:
         id: release
       - name: Record macOS startup dependencies
         if: runner.os == 'macOS'
-        run: otool -L target/${{ matrix.target }}/release/paradox
+        run: |
+          otool -L target/${{ matrix.target }}/release/paradox | tee startup-dependencies.txt
+          python3 - <<'PY'
+          from pathlib import Path
+          linked = Path('startup-dependencies.txt').read_text()
+          for framework in ('CoreFoundation.framework', 'CoreServices.framework'):
+              assert framework not in linked, f'{framework} must load only on demand: {linked}'
+          PY
       - name: Install Windows terminal test helper on hosted runner
         if: runner.os == 'Windows'
         run: |

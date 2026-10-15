@@ -72,8 +72,8 @@ pub struct FSEventStreamContext {
     pub copy_description: Option<CFAllocatorCopyDescriptionCallBack>,
 }
 
-// Paradox diagnostic prototype: upstream 4.1.0 declarations retain their ABI,
-// but CoreServices opens only when ensure_loaded() or an API is first used.
+// Upstream 4.1.0 declarations retain their ABI; Paradox loads their framework
+// only when ensure_loaded() or an API is first used.
 // The upstream MIT license is preserved alongside this source.
 use std::ffi::CStr;
 use std::sync::OnceLock;

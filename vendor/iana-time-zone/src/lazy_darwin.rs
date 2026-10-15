@@ -1,4 +1,4 @@
-// Diagnostic-only late-bound CoreFoundation calls. Keep core-foundation-sys
+// On-demand CoreFoundation calls. Keep core-foundation-sys
 // ABI types without its eager framework link; the timezone algorithm is intact.
 use core_foundation_sys::base::{Boolean, CFIndex, CFRange, CFTypeRef};
 use core_foundation_sys::string::{CFStringEncoding, CFStringRef};
