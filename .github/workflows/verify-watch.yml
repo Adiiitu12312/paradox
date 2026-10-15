@@ -18,6 +18,7 @@ jobs:
       CARGO_BUILD_TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/frontend
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt

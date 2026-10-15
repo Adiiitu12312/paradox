@@ -289,7 +289,10 @@ pub fn commit(args: &[OsString], index: usize, file: Option<usize>) -> Result<i3
         repo,
         &std::env::current_exe()?,
         commit_args,
-        paradox_core::commit::StagePolicy::Auto { paths, options: stage_options },
+        paradox_core::commit::StagePolicy::Auto {
+            paths,
+            options: stage_options,
+        },
         no_verify,
         false,
     )?;

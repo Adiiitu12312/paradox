@@ -24,6 +24,11 @@ jobs:
       CARGO_BUILD_TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/frontend
+      - run: npm run lint
+        working-directory: frontend
+      - run: npm test
+        working-directory: frontend
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -38,6 +43,24 @@ jobs:
       - run: cargo test --workspace --locked --features paradox-cli/fault-injection
       - run: cargo build --release --locked -p paradox-cli
         id: release
+      - name: Install hosted browser for UI integration tests
+        run: npx playwright install --with-deps chromium
+        working-directory: frontend
+      - name: Test browser staging, real commits and session teardown
+        shell: bash
+        working-directory: frontend
+        run: |
+          suffix=''
+          if [ "$RUNNER_OS" = Windows ]; then suffix='.exe'; fi
+          PARADOX_BIN="$GITHUB_WORKSPACE/target/${{ matrix.target }}/release/paradox$suffix" PLAYWRIGHT_CHANNEL=chromium npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: ui-browser-${{ runner.os }}-${{ runner.arch }}
+          path: |
+            frontend/playwright-report/
+            frontend/test-results/
+          if-no-files-found: ignore
       - name: Record macOS startup dependencies
         if: runner.os == 'macOS'
         run: |
@@ -143,6 +166,7 @@ jobs:
       CARGO_BUILD_TARGET: ${{ matrix.target }}
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/frontend
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Measure watch RSS and CPU after ten minutes idle on 50,000 tracked files

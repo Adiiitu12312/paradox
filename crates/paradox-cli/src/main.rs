@@ -121,9 +121,7 @@ fn main() {
         Route::Owned { index } if args[index] == "watch" => {
             Ok(workflow_result(watch::run(&args, index)))
         }
-        Route::Owned { index } if args[index] == "ui" => {
-            Ok(workflow_result(ui::run(&args, index)))
-        }
+        Route::Owned { index } if args[index] == "ui" => Ok(workflow_result(ui::run(&args, index))),
         Route::Owned { index } if args[index] == "init" || args[index] == "commit" => {
             let result = if args[index] == "init" {
                 workflow::init(&args, index)

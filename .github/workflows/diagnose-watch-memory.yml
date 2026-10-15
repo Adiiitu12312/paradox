@@ -11,6 +11,7 @@ jobs:
       CARGO_BUILD_TARGET: aarch64-apple-darwin
     steps:
       - uses: actions/checkout@v4
+      - uses: ./.github/actions/frontend
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt

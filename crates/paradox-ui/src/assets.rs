@@ -30,7 +30,11 @@ fn mime(path: &str) -> &'static str {
 }
 
 pub(crate) fn get(path: &str, assets_dir: &Option<PathBuf>) -> Result<Option<Asset>> {
-    let name = if path == "/" { "index.html" } else { path.strip_prefix('/').unwrap_or(path) };
+    let name = if path == "/" {
+        "index.html"
+    } else {
+        path.strip_prefix('/').unwrap_or(path)
+    };
     if name.is_empty() || Path::new(name).components().any(|component| {
         !matches!(component, Component::Normal(value) if !matches!(value.to_str(), Some(".git" | ".paradox" | "node_modules")))
     }) {
@@ -53,13 +57,21 @@ pub(crate) fn get(path: &str, assets_dir: &Option<PathBuf>) -> Result<Option<Ass
         if !target.starts_with(&base) || !target.is_file() {
             return Ok(None);
         }
-        ensure!(fs::metadata(&target)?.len() <= 32 * 1024 * 1024, "UI asset exceeds 32 MiB");
+        ensure!(
+            fs::metadata(&target)?.len() <= 32 * 1024 * 1024,
+            "UI asset exceeds 32 MiB"
+        );
         fs::read(target)?
     } else {
-        let Some(file) = Embedded::get(name) else { return Ok(None) };
+        let Some(file) = Embedded::get(name) else {
+            return Ok(None);
+        };
         file.data.into_owned()
     };
-    Ok(Some(Asset { bytes, content_type: mime(name).into() }))
+    Ok(Some(Asset {
+        bytes,
+        content_type: mime(name).into(),
+    }))
 }
 
 #[cfg(test)]
@@ -74,9 +86,24 @@ mod tests {
         fs::create_dir(root.path().join("assets")).unwrap();
         fs::write(root.path().join("assets/editor.js"), b"export {}\n").unwrap();
         let directory = Some(root.path().to_path_buf());
-        assert_eq!(get("/", &directory).unwrap().unwrap().bytes, b"<!doctype html>\n");
-        assert!(get("/assets/editor.js", &directory).unwrap().unwrap().content_type.starts_with("application/javascript"));
-        for path in ["/../index.html", "/assets/../../index.html", "/.git/config", "/.paradox/config.toml", "/missing.js"] {
+        assert_eq!(
+            get("/", &directory).unwrap().unwrap().bytes,
+            b"<!doctype html>\n"
+        );
+        assert!(
+            get("/assets/editor.js", &directory)
+                .unwrap()
+                .unwrap()
+                .content_type
+                .starts_with("application/javascript")
+        );
+        for path in [
+            "/../index.html",
+            "/assets/../../index.html",
+            "/.git/config",
+            "/.paradox/config.toml",
+            "/missing.js",
+        ] {
             assert!(get(path, &directory).unwrap().is_none(), "{path}");
         }
     }
@@ -87,16 +114,28 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let outside = tempfile::tempdir().unwrap();
         fs::write(outside.path().join("private.txt"), b"private").unwrap();
-        std::os::unix::fs::symlink(outside.path().join("private.txt"), root.path().join("linked.txt")).unwrap();
+        std::os::unix::fs::symlink(
+            outside.path().join("private.txt"),
+            root.path().join("linked.txt"),
+        )
+        .unwrap();
         std::os::unix::fs::symlink(outside.path(), root.path().join("linked-dir")).unwrap();
         let directory = Some(root.path().to_path_buf());
         assert!(get("/linked.txt", &directory).unwrap().is_none());
-        assert!(get("/linked-dir/private.txt", &directory).unwrap().is_none());
+        assert!(
+            get("/linked-dir/private.txt", &directory)
+                .unwrap()
+                .is_none()
+        );
     }
 
     #[test]
     fn production_contains_the_built_frontend() {
         let index = get("/", &None).unwrap().unwrap();
-        assert!(String::from_utf8(index.bytes).unwrap().contains("<title>Paradox</title>"));
+        assert!(
+            String::from_utf8(index.bytes)
+                .unwrap()
+                .contains("<title>Paradox</title>")
+        );
     }
 }

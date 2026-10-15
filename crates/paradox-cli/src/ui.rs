@@ -6,7 +6,10 @@ use clap::Parser;
 use paradox_core::repo::Repo;
 
 #[derive(Parser)]
-#[command(name = "paradox ui", about = "Open a local, session-only Git workspace in your browser")]
+#[command(
+    name = "paradox ui",
+    about = "Open a local, session-only Git workspace in your browser"
+)]
 struct Options {
     #[arg(long)]
     no_open: bool,
@@ -24,10 +27,14 @@ pub fn run(args: &[OsString], index: usize) -> anyhow::Result<i32> {
         }
     };
     let repo = Repo::discover(&args[..index])?;
-    let runtime = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    let runtime = tokio::runtime::Builder::new_multi_thread()
+        .enable_all()
+        .build()?;
     runtime.block_on(paradox_ui::serve(
         repo,
-        paradox_ui::UiOptions { assets_dir: options.assets_dir },
+        paradox_ui::UiOptions {
+            assets_dir: options.assets_dir,
+        },
         move |ready| {
             println!("Paradox UI: {}", ready.url);
             println!("Close the browser tab or press Ctrl+C to stop.");

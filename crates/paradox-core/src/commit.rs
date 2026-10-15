@@ -7,7 +7,10 @@ use std::path::{Path, PathBuf};
 use std::process::Stdio;
 
 pub enum StagePolicy {
-    Auto { paths: Vec<std::ffi::OsString>, options: Vec<std::ffi::OsString> },
+    Auto {
+        paths: Vec<std::ffi::OsString>,
+        options: Vec<std::ffi::OsString>,
+    },
     ExistingIndex,
 }
 
@@ -26,28 +29,44 @@ pub struct CommitOutcome {
 
 fn commit_command(mut command: std::process::Command, capture: bool) -> Result<CommandRecord> {
     let argv = std::iter::once(command.get_program())
-        .chain(command.get_args()).map(|arg| arg.to_string_lossy().into_owned()).collect();
+        .chain(command.get_args())
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
     if capture {
         let output = crate::git::output_bounded(command, None, 8_388_608)?;
-        Ok(CommandRecord { argv, exit_code: output.status.code().unwrap_or(1),
+        Ok(CommandRecord {
+            argv,
+            exit_code: output.status.code().unwrap_or(1),
             stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned() })
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        })
     } else {
         let status = command.status()?;
-        Ok(CommandRecord { argv, exit_code: status.code().unwrap_or(1), stdout: String::new(), stderr: String::new() })
+        Ok(CommandRecord {
+            argv,
+            exit_code: status.code().unwrap_or(1),
+            stdout: String::new(),
+            stderr: String::new(),
+        })
     }
 }
 
 /// Shared CLI/UI commit orchestration. ExistingIndex never stages unrelated
 /// work: Git constructs its index, then mandatory hooks strip marker bytes.
 pub fn execute_commit(
-    repo: Repo, executable: &Path, args: Vec<std::ffi::OsString>, stage: StagePolicy,
-    no_verify: bool, capture_output: bool,
+    repo: Repo,
+    executable: &Path,
+    args: Vec<std::ffi::OsString>,
+    stage: StagePolicy,
+    no_verify: bool,
+    capture_output: bool,
 ) -> Result<CommitOutcome> {
     use std::ffi::OsString;
     let mut commands = Vec::new();
     let log = repo.store.clone();
-    if let Err(error) = LoopStore::open(repo.clone()).and_then(|mut store| store.capture(&[]).map(|_| ())) {
+    if let Err(error) =
+        LoopStore::open(repo.clone()).and_then(|mut store| store.capture(&[]).map(|_| ()))
+    {
         crate::store::log_at(&log, &format!("fallback scan: {error:#}"));
     }
     let existing_index = matches!(stage, StagePolicy::ExistingIndex);
@@ -55,20 +74,32 @@ pub fn execute_commit(
         let mut add = repo.globals.clone();
         add.extend([OsString::from("add"), OsString::from("-A")]);
         add.extend(options);
-        if !paths.is_empty() { add.push("--".into()); add.extend(paths); }
+        if !paths.is_empty() {
+            add.push("--".into());
+            add.extend(paths);
+        }
         let record = commit_command(crate::git::command(&add), capture_output)?;
         let code = record.exit_code;
         commands.push(record);
-        if code != 0 { return Ok(CommitOutcome { code, commands }); }
+        if code != 0 {
+            return Ok(CommitOutcome { code, commands });
+        }
     }
-    let temporary = tempfile::Builder::new().prefix("paradox-commit-hooks-").tempdir()?;
+    let temporary = tempfile::Builder::new()
+        .prefix("paradox-commit-hooks-")
+        .tempdir()?;
     let hooks = crate::setup::hooks_dir(&repo)?;
     if hooks.is_dir() {
         for entry in fs::read_dir(&hooks)? {
             let entry = entry?;
-            if !crate::setup::runnable(&entry.path()) { continue; }
+            if !crate::setup::runnable(&entry.path()) {
+                continue;
+            }
             let name = entry.file_name();
-            if name == "pre-commit" || name == "post-commit" || (no_verify && name == "commit-msg") { continue; }
+            if name == "pre-commit" || name == "post-commit" || (no_verify && name == "commit-msg")
+            {
+                continue;
+            }
             let script = crate::setup::hook_script(executable, Some(&entry.path()), None)?;
             let path = temporary.path().join(name);
             fs::write(&path, script)?;
@@ -78,7 +109,11 @@ pub fn execute_commit(
     for event in ["pre-commit", "post-commit"] {
         let previous = hooks.join(event);
         let previous = crate::setup::runnable(&previous).then_some(previous);
-        let previous = if no_verify && event == "pre-commit" { None } else { previous.as_deref() };
+        let previous = if no_verify && event == "pre-commit" {
+            None
+        } else {
+            previous.as_deref()
+        };
         let script = crate::setup::hook_script(executable, previous, Some(event))?;
         let path = temporary.path().join(event);
         fs::write(&path, script)?;
@@ -91,19 +126,23 @@ pub fn execute_commit(
         command
     } else {
         let mut all = repo.globals.clone();
-        all.extend([OsString::from("-c"), hook_option.into(), OsString::from("commit")]);
+        all.extend([
+            OsString::from("-c"),
+            hook_option.into(),
+            OsString::from("commit"),
+        ]);
         all.extend(args);
         crate::git::command(&all)
     };
     let record = commit_command(command, capture_output)?;
     let code = record.exit_code;
     commands.push(record);
-    if code == 0 {
-        if let Ok(updated) = Repo::discover(&repo.globals) {
-            if let Err(error) = LoopStore::open(updated).and_then(|mut store| store.purge().map(|_| ())) {
-                crate::store::log_at(&log, &format!("post-commit purge: {error:#}"));
-            }
-        }
+    if code == 0
+        && let Ok(updated) = Repo::discover(&repo.globals)
+        && let Err(error) =
+            LoopStore::open(updated).and_then(|mut store| store.purge().map(|_| ()))
+    {
+        crate::store::log_at(&log, &format!("post-commit purge: {error:#}"));
     }
     Ok(CommitOutcome { code, commands })
 }
