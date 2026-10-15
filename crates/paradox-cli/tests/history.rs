@@ -204,7 +204,7 @@ fn help_never_initializes_a_repository_or_store() {
         );
     }
     assert!(!root.path().join(".git").exists());
-    assert!(!root.path().join(".paradox").exists());
+    assert!(!root.path().join(".git/paradox").exists());
 }
 
 #[cfg(feature = "fault-injection")]

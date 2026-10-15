@@ -53,7 +53,7 @@ def main():
             with ThreadPoolExecutor(max_workers=20) as workers:
                 results = list(workers.map(lambda _: run(binary, 'loop', name), range(20)))
             assert len(results) == 20
-            with closing(sqlite3.connect(root / '.paradox/index.sqlite3')) as connection:
+            with closing(sqlite3.connect(root / '.git/paradox/index.sqlite3')) as connection:
                 assert connection.execute('SELECT COUNT(*) FROM loops WHERE path=?', (name,)).fetchone()[0] == 2
                 assert connection.execute('PRAGMA integrity_check').fetchone()[0] == 'ok'
 
@@ -75,7 +75,7 @@ def main():
             code, output = terminal(binary, ['timeline'], root, env,
                                     ready_marker=b'Choose a file', ready_input=b'weird\r')
             assert code == 0 and b'Loops for "nested/weird\\n\\u{1b}[31m.ts"' in output, (code, output)
-            with closing(sqlite3.connect(root / '.paradox/index.sqlite3')) as connection:
+            with closing(sqlite3.connect(root / '.git/paradox/index.sqlite3')) as connection:
                 assert connection.execute('SELECT COUNT(*) FROM loops WHERE path=?', (raw_name,)).fetchone()[0] == 1
             print('PASS: timeline filtering escapes terminal-control filename bytes without changing selection')
 
@@ -89,12 +89,12 @@ def main():
             before = (root / '.git/info/exclude').read_bytes()
 
             def no_store():
-                assert not (root / '.paradox').exists()
+                assert not (root / '.git/paradox').exists()
 
             code, output = terminal(binary, ['timeline'], root, env,
                                     ready_marker=b'Choose a file', ready_input=keys, on_ready=no_store)
             assert code == 0 and b'Timeline cancelled.' in output, (label, code, output)
-            assert not (root / '.paradox').exists()
+            assert not (root / '.git/paradox').exists()
             assert (root / '.git/info/exclude').read_bytes() == before
             assert (root / 'a.ts').read_bytes() == before_file
             print(f'PASS: {label} cancels cleanly without creating a loop store or altering files')

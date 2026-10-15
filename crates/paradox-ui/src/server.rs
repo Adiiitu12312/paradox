@@ -254,14 +254,20 @@ struct StartAction {
     confirmation_token: Option<String>,
 }
 async fn start_action(State(app): State<App>, Json(request): Json<StartAction>) -> Response {
-    match tokio::task::spawn_blocking(move || app
-        .operations
-        .start(app.repo.clone(), request.action, request.confirmation_token)).await {
+    match tokio::task::spawn_blocking(move || {
+        app.operations
+            .start(app.repo.clone(), request.action, request.confirmation_token)
+    })
+    .await
+    {
         Ok(Ok(id)) => Json(json!({"operation_id":id, "commands":[]})).into_response(),
         Ok(Err(error)) => {
-            let code = error.downcast_ref::<ui_git::ActionError>().map(|action| action.code).unwrap_or("operation_not_started");
+            let code = error
+                .downcast_ref::<ui_git::ActionError>()
+                .map(|action| action.code)
+                .unwrap_or("operation_not_started");
             failure(StatusCode::CONFLICT, code, error)
-        },
+        }
         Err(error) => failure(StatusCode::INTERNAL_SERVER_ERROR, "internal_error", error),
     }
 }

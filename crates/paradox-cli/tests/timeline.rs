@@ -48,7 +48,7 @@ fn help_and_invalid_options_work_without_repository_or_sidecar() {
     assert_eq!(invalid.status.code(), Some(2));
     let outside = px(root.path(), &["timeline"]);
     assert_eq!(outside.status.code(), Some(1));
-    assert!(!root.path().join(".paradox").exists());
+    assert!(!root.path().join(".git/paradox").exists());
     assert!(!root.path().join(".git").exists());
 }
 
@@ -67,13 +67,13 @@ fn empty_picker_and_nonterminal_failure_do_not_open_or_create_store() {
     assert!(
         String::from_utf8_lossy(&empty.stdout).contains("No recent or uncommitted tracked files.")
     );
-    assert!(!root.path().join(".paradox").exists());
+    assert!(!root.path().join(".git/paradox").exists());
     fs::write(root.path().join("a.ts"), "base\n").unwrap();
     git(root.path(), &["add", "a.ts"]);
     git(root.path(), &["commit", "-qm", "base"]);
     let clean = px(root.path(), &["timeline"]);
     assert!(clean.status.success());
-    assert!(!root.path().join(".paradox").exists());
+    assert!(!root.path().join(".git/paradox").exists());
     fs::write(root.path().join("a.ts"), "//> pending\nchanged\n").unwrap();
     let no_terminal = px(root.path(), &["timeline"]);
     assert!(
@@ -82,7 +82,7 @@ fn empty_picker_and_nonterminal_failure_do_not_open_or_create_store() {
     );
     assert!(String::from_utf8_lossy(&no_terminal.stderr).contains("interactive terminal"));
     assert!(
-        !root.path().join(".paradox").exists(),
+        !root.path().join(".git/paradox").exists(),
         "waiting or failing to prompt must not open a store"
     );
     assert_eq!(

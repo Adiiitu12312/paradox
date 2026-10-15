@@ -147,9 +147,9 @@ pub fn init(args: &[OsString], index: usize) -> Result<i32> {
 }
 
 pub fn commit(args: &[OsString], index: usize, file: Option<usize>) -> Result<i32> {
-    let globals = &args[..file.unwrap_or(index)];
+    let globals = paradox_cli::dispatch::global_args(args, file.unwrap_or(index));
     let repo = Repo::discover(globals)?;
-    let mut commit_args = file.map(|f| vec![args[f].clone()]).unwrap_or_default();
+    let mut commit_args = Vec::new();
     let mut paths = file.map(|f| vec![args[f].clone()]).unwrap_or_default();
     let mut stage_options = Vec::new();
     let mut pathspec_input = None;
@@ -281,6 +281,13 @@ pub fn commit(args: &[OsString], index: usize, file: Option<usize>) -> Result<i3
             paths.push(arg.clone());
         }
         i += 1;
+    }
+    if let Some(file) = file {
+        if separator.is_none() {
+            separator = Some(commit_args.len());
+            commit_args.push("--".into());
+        }
+        commit_args.push(args[file].clone());
     }
     // An unrecognized Git spelling must not disable our own stripper.
     commit_args.insert(separator.unwrap_or(commit_args.len()), "--verify".into());

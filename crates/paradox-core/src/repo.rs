@@ -94,14 +94,7 @@ impl Repo {
                 && Path::new(lines[3]).is_absolute(),
             "Git returned invalid repository paths"
         );
-        let store = if common.file_name().is_some_and(|s| s == ".git") {
-            common
-                .parent()
-                .context("missing repository parent")?
-                .join(".paradox")
-        } else {
-            common.join("paradox")
-        };
+        let store = common.join("paradox");
         let worktree = blake3::hash(root.as_os_str().as_encoded_bytes())
             .to_hex()
             .to_string();

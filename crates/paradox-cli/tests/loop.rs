@@ -102,7 +102,7 @@ fn save_failures_are_nonfatal_and_metadata_is_excluded() {
             .success()
     );
     fs::write(
-        temp.path().join(".paradox/config.toml"),
+        temp.path().join(".git/paradox/config.toml"),
         "size_limit_bytes = 0\n",
     )
     .unwrap();
@@ -114,7 +114,7 @@ fn save_failures_are_nonfatal_and_metadata_is_excluded() {
             .success()
     );
     assert!(
-        fs::read_to_string(temp.path().join(".paradox/log"))
+        fs::read_to_string(temp.path().join(".git/paradox/log"))
             .unwrap()
             .contains("positive")
     );
@@ -123,7 +123,7 @@ fn save_failures_are_nonfatal_and_metadata_is_excluded() {
         .current_dir(temp.path())
         .output()
         .unwrap();
-    assert!(!String::from_utf8_lossy(&out.stdout).contains(".paradox"));
+    assert!(!String::from_utf8_lossy(&out.stdout).contains(".git/paradox"));
     assert!(
         command(temp.path())
             .args(["loop", "--help"])

@@ -166,7 +166,7 @@ fn ignores_untracked_directories_secrets_binary_large_and_links() {
     git(temp.path(), &["add", "-A"]);
     let indexed = Command::new("git")
         .current_dir(temp.path())
-        .args(["ls-files", ".paradox"])
+        .args(["ls-files", ".git/paradox"])
         .output()
         .unwrap();
     assert!(
@@ -249,7 +249,7 @@ fn ambiguous_repository_paths_are_rejected_before_store_creation() {
     git(root.path(), &["init", "-q"]);
     let repo = Repo::discover(&[OsString::from("-C"), root.path().as_os_str().to_owned()]);
     assert!(repo.is_err());
-    assert!(!root.path().join(".paradox").exists());
+    assert!(!root.path().join(".git/paradox").exists());
 }
 
 #[test]
@@ -258,7 +258,7 @@ fn rejected_store_link_cannot_log_outside_the_repository() {
     let temp = fixture();
     let outside = tempfile::tempdir().unwrap();
     fs::write(outside.path().join("log"), b"untouched\n").unwrap();
-    let linked = temp.path().join(".paradox");
+    let linked = temp.path().join(".git/paradox");
     std::os::unix::fs::symlink(outside.path(), &linked).unwrap();
     let repo = Repo::discover(&[OsString::from("-C"), temp.path().as_os_str().to_owned()]).unwrap();
     assert!(LoopStore::open(repo).is_err());

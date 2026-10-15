@@ -374,6 +374,11 @@ pub fn execute(
         git.commands.extend(safety::discard(&repo, paths)?);
         return Ok(git.finish(json!({"changed":true,"safety_loops":safety_loops})));
     }
+    if matches!(action,Action::Continue{..}) {
+        // Agent-rule markers remain in the working file. Only the resolved
+        // index is sanitized before Git resumes its native sequencer/commit.
+        crate::commit::strip_staged(&repo)?;
+    }
     let argv: Vec<_> = args.iter().map(String::as_str).collect();
     let mut command = repo.command(&argv);
     command

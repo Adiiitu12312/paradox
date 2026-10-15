@@ -124,7 +124,7 @@ fn print_commands_do_not_initialize_a_repository_or_install_anything() {
     assert_eq!(fs::read_dir(root).unwrap().count(), 0);
     ok(px(root, &["init"]));
     assert!(root.join(".git").is_dir());
-    assert!(root.join(".paradox").is_dir());
+    assert!(root.join(".git/paradox").is_dir());
     assert_eq!(
         store(root)
             .index
@@ -178,7 +178,7 @@ fn raw_git_commit_chains_hooks_and_strips_every_marker_without_touching_working_
         git(root, &["show", "HEAD:no.json"]),
         "//> invalid JSON comment\n{}"
     );
-    assert!(!git(root, &["ls-tree", "-r", "--name-only", "HEAD"]).contains(".paradox/"));
+    assert!(!git(root, &["ls-tree", "-r", "--name-only", "HEAD"]).contains(".git/paradox/"));
     ok(px(root, &["init", "--uninstall"]));
     assert_eq!(
         fs::read(root.join("custom-hooks/pre-commit")).unwrap(),

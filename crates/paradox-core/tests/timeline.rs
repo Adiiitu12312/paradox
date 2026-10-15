@@ -83,7 +83,7 @@ impl Fixture {
 fn zero_through_five_commits_use_current_head_and_the_exact_net_boundary() {
     let fixture = Fixture::new();
     assert!(fixture.repo().timeline_paths().unwrap().is_empty());
-    assert!(!fixture.0.path().join(".paradox").exists());
+    assert!(!fixture.0.path().join(".git/paradox").exists());
     fixture.write("root.ts", "root\n");
     fixture.git(&["add", "--", "root.ts"]);
     let reused_repo = fixture.repo();

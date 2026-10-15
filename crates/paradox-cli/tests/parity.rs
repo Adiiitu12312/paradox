@@ -139,7 +139,7 @@ fn forty_plus_read_only_commands_match_byte_for_byte() {
             .unwrap();
         assert_same(expected, actual, args);
     }
-    assert!(!repo.path().join(".paradox").exists());
+    assert!(!repo.path().join(".git/paradox").exists());
     println!(
         "{} read-only/error Git combinations matched exactly",
         cases.len()
@@ -219,7 +219,7 @@ fn forced_git_keeps_globals_and_supports_commit_and_init() {
         .output()
         .unwrap();
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
-    assert!(!dir.path().join(".paradox").exists());
+    assert!(!dir.path().join(".git/paradox").exists());
 }
 
 #[test]
@@ -309,7 +309,7 @@ fn missing_git_is_clear_and_ui_help_does_not_modify_repo() {
         assert_eq!(o.status.code(), Some(0), "{owned}");
     }
     assert!(!dir.path().join(".git").exists());
-    assert!(!dir.path().join(".paradox").exists());
+    assert!(!dir.path().join(".git/paradox").exists());
 }
 
 #[test]

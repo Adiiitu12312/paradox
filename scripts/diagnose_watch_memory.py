@@ -46,7 +46,7 @@ def main():
             run('git', 'commit', '-qm', 'base')
             assert len(run('git', 'ls-files', '-z').split(b'\0')) - 1 == 50_000
             run(binary, 'loop')
-            (root / '.paradox' / 'config.toml').write_text('watch_idle_minutes = 0\n')
+            (root / '.git/paradox' / 'config.toml').write_text('watch_idle_minutes = 0\n')
             with (output / f'{name}.log').open('wb') as log:
                 child = subprocess.Popen([str(binary), 'watch'], cwd=root, env=env,
                                          stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, stderr=log)
@@ -79,7 +79,7 @@ def main():
                     assert child.wait(timeout=15) == 0
                     log.write(child.stdout.read())
                     assert run(binary, 'watch', '--status').strip() == b'not running'
-                    with sqlite3.connect(root / '.paradox' / 'index.sqlite3') as connection:
+                    with sqlite3.connect(root / '.git/paradox' / 'index.sqlite3') as connection:
                         assert connection.execute('SELECT COUNT(*) FROM loops').fetchone()[0] == 0
                 finally:
                     if child.poll() is None:

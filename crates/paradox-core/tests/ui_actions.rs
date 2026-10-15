@@ -436,3 +436,13 @@ fn a_long_lived_repo_discards_to_current_branch_head_and_labels_safety_correctly
     let store=LoopStore::open(f.repo()).unwrap();let rows=store.loops("a.ts").unwrap();
     for safety in result["safety_loops"].as_array().unwrap(){let id=safety["id"].as_i64().unwrap();let row=rows.iter().find(|row|row.id==id).unwrap();assert_eq!(row.head_sha,current);}
 }
+
+#[test]
+fn continue_merge_strips_a_closed_ai_marker_from_the_resolved_index_only(){
+    let f=Fixture::new();f.initial();f.git(&["checkout","-qb","topic"]);f.write("a.ts",b"theirs\n");f.commit("topic");f.git(&["checkout","-q","main"]);f.write("a.ts",b"ours\n");f.commit("main");assert!(!f.output(&["merge","--no-edit","topic"]).status.success());
+    let conflict=ui_actions::conflict(f.repo(),"a.ts").unwrap();let working="/*> combine both branches */\nresolved bytes\n";
+    let request=serde_json::from_value::<ResolveRequest>(json!({"path":"a.ts","token":conflict["token"],"choice":"manual","result":working,"mark_resolved":true})).unwrap();
+    ui_actions::resolve_conflict(f.repo(),request).unwrap();assert_eq!(f.git(&["show",":a.ts"]),working);
+    f.run(Action::Continue{operation:Operation::Merge});
+    assert_eq!(f.git(&["show","HEAD:a.ts"]),"resolved bytes\n");assert_eq!(f.git(&["show",":a.ts"]),"resolved bytes\n");assert_eq!(fs::read_to_string(f.0.path().join("a.ts")).unwrap(),working);
+}

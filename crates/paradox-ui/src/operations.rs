@@ -9,7 +9,10 @@ use serde_json::{Value, json};
 use std::{
     collections::{HashMap, VecDeque},
     convert::Infallible,
-    sync::{Arc, Mutex, atomic::{AtomicBool, Ordering}},
+    sync::{
+        Arc, Mutex,
+        atomic::{AtomicBool, Ordering},
+    },
     time::{Duration, Instant},
 };
 use tokio::sync::watch;
@@ -51,13 +54,14 @@ impl Operation {
     fn emit(&self, value: Value, done: bool) {
         let mut value = value;
         if let Some(text) = value.get("text").and_then(Value::as_str).map(str::to_owned)
-            && text.len() > 8192 {
-                let mut end = 8192;
-                while !text.is_char_boundary(end) {
-                    end -= 1;
-                }
-                value["text"] = json!(&text[..end]);
-                value["truncated"] = json!(true);
+            && text.len() > 8192
+        {
+            let mut end = 8192;
+            while !text.is_char_boundary(end) {
+                end -= 1;
+            }
+            value["text"] = json!(&text[..end]);
+            value["truncated"] = json!(true);
         }
         let encoded = value.to_string();
         let mut transcript = self
@@ -185,9 +189,14 @@ impl Operations {
         action: Action,
         confirmation: Option<String>,
     ) -> Result<String> {
-        let _guard = self.mutation.try_lock().map_err(|_| paradox_core::ui_git::ActionError {
-            code: "operation_busy", message: "Another Git operation is running".into(), commands: vec![],
-        })?;
+        let _guard = self
+            .mutation
+            .try_lock()
+            .map_err(|_| paradox_core::ui_git::ActionError {
+                code: "operation_busy",
+                message: "Another Git operation is running".into(),
+                commands: vec![],
+            })?;
         ensure!(!self.busy(), "Another Git operation is running");
         let plan = match confirmation {
             Some(token) => {
@@ -212,12 +221,17 @@ impl Operations {
             }
             None => None,
         };
-        if let Some(plan) = &plan { ui_actions::validate_plan(&repo, plan)?; }
+        if let Some(plan) = &plan {
+            ui_actions::validate_plan(&repo, plan)?;
+        }
         let id = identifier()?;
         let operation = Arc::new(Operation::new());
         {
             let mut jobs = self.jobs.lock().unwrap_or_else(|error| error.into_inner());
-            ensure!(!self.closing.load(Ordering::SeqCst), "The UI session is stopping");
+            ensure!(
+                !self.closing.load(Ordering::SeqCst),
+                "The UI session is stopping"
+            );
             ensure!(
                 !jobs.values().any(|job| !job.done()),
                 "Another Git operation is running"

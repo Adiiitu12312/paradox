@@ -1,0 +1,69 @@
+use paradox_core::{repo::Repo, store::LoopStore, blob::BlobStore};
+use std::{fs, process::Command, path::Path};
+use rusqlite::OptionalExtension;
+fn git(root: &Path, args: &[&str]) {
+    let output=Command::new("git").args(args).current_dir(root)
+        .env("GIT_CONFIG_NOSYSTEM","1").env("GIT_CONFIG_GLOBAL",root.join("no-global"))
+        .env("GIT_AUTHOR_NAME","Store Test").env("GIT_AUTHOR_EMAIL","test@example.invalid")
+        .env("GIT_COMMITTER_NAME","Store Test").env("GIT_COMMITTER_EMAIL","test@example.invalid").output().unwrap();
+    assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
+}
+fn fixture() -> tempfile::TempDir {
+    let directory=tempfile::tempdir().unwrap();let root=directory.path();
+    git(root,&["init","-q","--initial-branch=main"]);
+    git(root,&["config","commit.gpgsign","false"]);git(root,&["config","core.hooksPath",".git/no-hooks"]);
+    fs::write(root.join("a.ts"),"base\n").unwrap();git(root,&["add","a.ts"]);git(root,&["commit","-qm","base"]);directory
+}
+fn repo(root:&Path)->Repo { Repo::discover(&["-C".into(),root.as_os_str().to_owned()]).unwrap() }
+#[test]
+fn common_store_needs_no_exclusion_and_legacy_migration_keeps_ids_and_bytes() {
+    let directory=fixture();let root=directory.path();let expected=root.join(".git/paradox");
+    let exclude=root.join(".git/info/exclude");let before=fs::read(&exclude).unwrap_or_default();
+    fs::write(root.join("a.ts"),"//> retained migration\nchanged\n").unwrap();
+    let id={let mut store=LoopStore::open(repo(root)).unwrap();store.capture(&[]).unwrap();assert_eq!(store.repo.store,expected);store.index.execute("UPDATE schema_version SET version=2",[]).unwrap();store.index.execute("UPDATE sqlite_sequence SET seq=1000 WHERE name='loops'",[]).unwrap();store.loops("a.ts").unwrap()[0].id};
+    assert_eq!(fs::read(&exclude).unwrap_or_default(),before);
+    fs::rename(&expected,root.join(".git/paradox")).unwrap();
+    assert!(LoopStore::open(repo(root)).is_err(),"must not silently abandon legacy history");
+    paradox_core::migration::migrate(&repo(root)).unwrap();
+    assert!(!root.join(".git/paradox").exists());
+    let mut store=LoopStore::open(repo(root)).unwrap();let loops=store.loops("a.ts").unwrap();assert_eq!(loops[0].id,id);
+    assert_eq!(store.blobs.get(&loops[0].blob_hash).unwrap(),b"//> retained migration\nchanged\n");
+    assert_eq!(store.index.query_row("PRAGMA foreign_key_check",[],|_|Ok(())).optional().unwrap(),None);
+    fs::write(root.join("a.ts"),"after migration\n").unwrap();store.capture(&[]).unwrap();assert!(store.loops("a.ts").unwrap()[0].id>1000);
+}
+#[test]
+fn migration_refuses_two_stores_without_removing_either() {
+    let directory=fixture();let root=directory.path();
+    drop(LoopStore::open(repo(root)).unwrap());fs::create_dir(root.join(".git/paradox")).unwrap();
+    fs::write(root.join(".git/paradox/precious"),b"preserve me").unwrap();
+    assert!(paradox_core::migration::migrate(&repo(root)).is_err());
+    assert_eq!(fs::read(root.join(".git/paradox/precious")).unwrap(),b"preserve me");
+    assert!(root.join(".git/paradox/index.sqlite3").is_file());
+}
+#[test]
+fn deletion_has_no_blob_reappearance_keeps_history_and_rewind_restores_before_deletion() {
+    let directory=fixture();let root=directory.path();
+    let mut store=LoopStore::open(repo(root)).unwrap();
+    fs::write(root.join("a.ts"),"//> keep this\noriginal edit\n").unwrap();store.capture(&[]).unwrap();
+    let saved=store.loops("a.ts").unwrap()[0].id;
+    let blobs:i64=store.index.query_row("SELECT COUNT(*) FROM blobs",[],|row|row.get(0)).unwrap();
+    fs::remove_file(root.join("a.ts")).unwrap();assert_eq!(store.capture(&[]).unwrap().saved,1);
+    let deleted=store.loops("a.ts").unwrap()[0].clone();assert_eq!(deleted.kind,"deleted");assert!(deleted.deleted);assert!(deleted.blob_hash.is_empty());
+    assert_eq!(store.index.query_row("SELECT COUNT(*) FROM blobs",[],|row|row.get::<_,i64>(0)).unwrap(),blobs);
+    assert_eq!(store.capture(&[]).unwrap().saved,0);
+    fs::write(root.join("a.ts"),"returned\n").unwrap();assert_eq!(store.capture(&[]).unwrap().saved,1);
+    assert!(store.loops("a.ts").unwrap().iter().any(|item|item.id==saved));
+    store.rewind_file(Path::new("a.ts"),&saved.to_string()).unwrap();
+    assert_eq!(fs::read(root.join("a.ts")).unwrap(),b"//> keep this\noriginal edit\n");
+}
+#[test]
+fn cap_protects_every_files_newest_loop_and_warns_when_it_cannot_fit() {
+    let directory=fixture();let root=directory.path();fs::write(root.join("b.ts"),"base\n").unwrap();git(root,&["add","b.ts"]);git(root,&["commit","-qm","second file"]);
+    let mut store=LoopStore::open(repo(root)).unwrap();
+    for n in 0..4 {fs::write(root.join("a.ts"),format!("a version {n}\n")).unwrap();store.capture(&[]).unwrap();}
+    fs::write(root.join("b.ts"),"newest b\n").unwrap();store.capture(&[]).unwrap();
+    let a=store.loops("a.ts").unwrap()[0].id;let b=store.loops("b.ts").unwrap()[0].id;
+    store.config.store_cap_bytes=1;store.gc().unwrap();
+    assert!(store.loops("a.ts").unwrap().iter().any(|item|item.id==a));assert!(store.loops("b.ts").unwrap().iter().any(|item|item.id==b));
+    assert!(fs::read_to_string(store.repo.store.join("log")).unwrap().contains("newest per-file"));
+}

@@ -4,6 +4,8 @@ A Rust Git wrapper that will add local per-file loops and a browser Git UI.
 Git remains the source of truth; every Git operation uses the installed Git binary.
 
 **Development status: M1–M5 complete; M6 browser UI is in progress.**
+UI implementation is paused while the [core brief amendments](docs/amendments-core.md)
+are applied and tested. Stop at M7 acceptance; M8/M9 remain pending for later.
 The [M6 work report](docs/milestones/M6.md) records its current validation state.
 See the [M1 verification report](docs/milestones/M1.md) for measured results.
 The [M2 verification report](docs/milestones/M2.md) records capture tests and timing gates.
@@ -111,7 +113,7 @@ Explicit saves only consider tracked paths. A scan with no file arguments examin
 the tracked set and records changed files; untracked directories are not traversed.
 Secret-denylisted paths, binary files, symlinks and files above the size limit are
 skipped. Repeated identical content is deduped. Save errors are nonfatal and go to
-the bounded `.paradox/log`.
+the bounded `<git-common-dir>/paradox/log`.
 
 Messages use `//>`, `#>`, `-->`, `-- >`, `;>`, `%>`, `/*> message */` or
 `<!--> message -->` on the first line. Shebang and standalone `<?php` files use
@@ -179,7 +181,7 @@ that encounters an I/O error can finish partially; each completed file is undoab
 
 `track` adds eligible explicit paths without staging them. Directory enumeration
 uses Git's ignore rules and happens only when requested. Registrations are stored
-per worktree in `.paradox/tracked.toml`; unrelated new directories remain ignored.
+per worktree in `<git-common-dir>/paradox/tracked.toml`; unrelated new directories remain ignored.
 `untrack` removes only explicit registration: files in `git ls-files` remain tracked.
 Existing loops remain available after untracking. Git-reported renames carry loop
 history to the new path; otherwise it stays under the old path. Branch changes do
@@ -334,10 +336,10 @@ The [M4.5 watcher](docs/milestones/M4.5-watch.md) covers agents/tools with no ed
 hook. Start it explicitly with `paradox watch` or `paradox watch --background`;
 stop it with Ctrl+C or `paradox watch --stop`, and inspect it with `--status`.
 It is never automatic and never installed as a service. Idle sessions stop after
-30 minutes by default; set `watch_idle_minutes = 0` in `.paradox/config.toml` to
+30 minutes by default; set `watch_idle_minutes = 0` in `<git-common-dir>/paradox/config.toml` to
 disable idle exit. Only eligible tracked-file directories are watched, with
 300 ms per-file debounce and bulk-operation protection. Linux users get an exact
 coverage warning if the inotify watch limit is too low; raise
 `fs.inotify.max_user_watches` with `sysctl` as the warning describes.
-Background notices go to `.paradox/watch-output.log`; capture errors go to
-`.paradox/log`. See the [M4.5 verification report](docs/milestones/M4.5.md).
+Background notices go to `<git-common-dir>/paradox/watch-output.log`; capture errors go to
+`<git-common-dir>/paradox/log`. See the [M4.5 verification report](docs/milestones/M4.5.md).

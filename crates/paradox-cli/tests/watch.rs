@@ -224,7 +224,7 @@ fn native_saves_rename_sed_debounce_and_exclusions() {
     )
     .unwrap();
     fs::write(root.join(".git/ignored-probe"), "metadata\n").unwrap();
-    fs::write(root.join(".paradox/ignored-probe"), "metadata\n").unwrap();
+    fs::write(root.join(".git/paradox/ignored-probe"), "metadata\n").unwrap();
     std::thread::sleep(Duration::from_secs(3));
     assert_eq!(count(root), 4);
     assert!(px(root, &["watch", "--status"]).contains("loops_created=4"));
@@ -411,7 +411,7 @@ fn bulk_promotes_previously_settled_watcher_saves_and_keeps_latest_content() {
                 .iter()
                 .map(|row| (&row.message, &row.kind))
                 .collect::<Vec<_>>(),
-            fs::read_to_string(root.join(".paradox/log")).unwrap_or_default()
+            fs::read_to_string(root.join(".git/paradox/log")).unwrap_or_default()
         );
         drop(current);
         std::thread::sleep(Duration::from_millis(50));
@@ -586,7 +586,7 @@ fn many_changes_spread_outside_two_second_window_remain_ordinary_saves() {
                 "watch did not acknowledge {path}; captured={total}, elapsed={:?}, status={:?}, log={}, stderr={}",
                 started.elapsed(),
                 watch.child.try_wait().unwrap(),
-                fs::read_to_string(root.join(".paradox/log")).unwrap_or_default(),
+                fs::read_to_string(root.join(".git/paradox/log")).unwrap_or_default(),
                 fs::read_to_string(root.join(".watch-stderr")).unwrap_or_default()
             );
             std::thread::sleep(Duration::from_millis(50));
@@ -824,7 +824,7 @@ fn fifty_thousand_tracked_files_ten_minute_idle_footprint() {
     let temp = fixture(49_999);
     let root = temp.path();
     fs::write(
-        root.join(".paradox/config.toml"),
+        root.join(".git/paradox/config.toml"),
         "watch_idle_minutes = 0\n",
     )
     .unwrap();

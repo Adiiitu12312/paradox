@@ -351,126 +351,98 @@ pub fn strip_staged(repo: &Repo) -> Result<usize> {
     result
 }
 
+#[derive(Clone)]
+struct FileRetention {
+    touches: Vec<(String, i64)>,
+    ordered_times: bool,
+}
+
+fn file_retention(repo: &Repo, path: &str, commits: usize) -> Result<FileRetention> {
+    let output = crate::git::output_bounded(repo.command(&[
+        "--literal-pathspecs", "log", "--no-show-signature", "--no-notes", "-z",
+        "--format=%H%x00%ct", &format!("--max-count={}", commits.saturating_add(129)),
+        "HEAD", "--", path,
+    ]), None, 1_048_576)?;
+    ensure!(output.status.success(), "file history lookup failed");
+    let mut fields: Vec<_> = output.stdout.split(|byte| *byte == 0).collect();
+    if fields.last() == Some(&b"".as_slice()) { fields.pop(); }
+    ensure!(fields.len().is_multiple_of(2), "invalid file history records");
+    let touches = fields.as_chunks::<2>().0.iter().map(|row| {
+        Ok((std::str::from_utf8(row[0])?.to_owned(), std::str::from_utf8(row[1])?.parse::<i64>()?.saturating_mul(1000)))
+    }).collect::<Result<Vec<_>>>()?;
+    let ordered_times = touches.windows(2).all(|pair| pair[0].1 >= pair[1].1);
+    Ok(FileRetention { touches, ordered_times })
+}
+
+fn loop_file_base(repo: &Repo, path: &str, head: &str) -> Result<Option<String>> {
+    if !matches!(head.len(), 40 | 64) || !head.bytes().all(|byte| byte.is_ascii_hexdigit()) { return Ok(None); }
+    let output = crate::git::output_bounded(repo.command(&[
+        "--literal-pathspecs", "log", "--no-show-signature", "--no-notes", "--format=%H", "--max-count=1",
+        head, "--", path,
+    ]), None, 65_536)?;
+    if !output.status.success() { return Ok(None); }
+    let sha = std::str::from_utf8(&output.stdout)?.trim();
+    Ok((!sha.is_empty()).then(|| sha.to_owned()))
+}
+
 impl LoopStore {
-    /// Keep current dirty paths, pins, unrelated branches and the last N commits.
-    /// Other worktrees are purged only when their own post-commit hook runs.
+    /// Per-file OR-retention. A loop's recorded HEAD precedes its resulting
+    /// commit, so its latest file-touch baseline is mapped to the following
+    /// file commit's edit window. Unrelated repository commits never age it.
     pub fn purge(&mut self) -> Result<usize> {
-        if self.repo.head.is_empty() || self.config.retention_commits == 0 {
-            return Ok(0);
-        }
-        let output = self.repo.git(&[
-            "rev-list",
-            "--first-parent",
-            &format!("--max-count={}", self.config.retention_commits),
-            "HEAD",
-        ])?;
-        let heads: Vec<_> = std::str::from_utf8(&output.stdout)?.lines().collect();
-        if heads.len() < self.config.retention_commits {
-            return Ok(0);
-        }
-        let cutoff = heads.last().context("missing retention boundary")?;
-        let cutoff_ms: i64 = std::str::from_utf8(
-            &self
-                .repo
-                .git(&["show", "-s", "--format=%ct", cutoff])?
-                .stdout,
-        )?
-        .trim()
-        .parse::<i64>()?
-        .saturating_mul(1000);
-        let mut dirty = self.repo.dirty()?;
-        // A retained marker makes Git report a file dirty even when its actual
-        // program bytes match HEAD. That alone must not disable retention.
-        dirty.retain(|path| {
-            let Ok(metadata) = fs::symlink_metadata(self.repo.root.join(path)) else {
-                return true;
-            };
-            if !metadata.is_file()
-                || metadata.file_type().is_symlink()
-                || metadata.len() > self.config.size_limit_bytes
-                || self.denied(path)
-            {
-                return true;
-            }
-            let Ok(bytes) = fs::read(self.repo.root.join(path)) else {
-                return true;
-            };
-            let Some(range) = crate::message::marker_range(Path::new(path), &bytes) else {
-                return true;
-            };
-            let Ok(version) = self.head_version(path) else {
-                return true;
-            };
-            #[cfg(unix)]
-            {
-                use std::os::unix::fs::PermissionsExt;
-                if version
-                    .mode()
-                    .is_some_and(|mode| mode & 0o100 != metadata.permissions().mode() & 0o100)
-                {
-                    return true;
-                }
-            }
-            let Ok(head) = self.version_bytes(path, &version) else {
-                return true;
-            };
-            let mut stripped = bytes[..range.start].to_vec();
-            stripped.extend_from_slice(&bytes[range.end..]);
-            stripped != head
-        });
-        let rows = self
-            .index
-            .prepare("SELECT id,path,head_sha,ts FROM loops WHERE worktree=?1 AND pinned=0")?
-            .query_map([&self.repo.worktree], |r| {
-                Ok((
-                    r.get::<_, i64>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                    r.get::<_, i64>(3)?,
-                ))
-            })?
+        if self.config.retention_commits == 0 { return Ok(0); }
+        self.repo = self.repo.clone().refreshed_head()?;
+        if self.repo.head.is_empty() { return Ok(0); }
+        let commits = self.config.retention_commits.max(3);
+        // An extreme compatibility setting means retaining more, never an
+        // unbounded history query or a weakened mandatory three-file window.
+        if commits > 100_000 { return Ok(0); }
+        let age_ms = self.config.retention_hours.saturating_mul(3_600_000);
+        let age_cutoff = crate::store::now()?.saturating_sub(i64::try_from(age_ms).unwrap_or(i64::MAX));
+        let rows = self.index.prepare("SELECT id,path,head_sha,ts,pinned FROM loops WHERE worktree=?1 ORDER BY path,ts DESC,id DESC")?
+            .query_map([&self.repo.worktree], |row| Ok((row.get::<_,i64>(0)?,row.get::<_,String>(1)?,row.get::<_,String>(2)?,row.get::<_,i64>(3)?,row.get::<_,bool>(4)?)))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
-        let mut ancestry = std::collections::HashMap::new();
+        let mut histories: std::collections::HashMap<String, Option<FileRetention>> = std::collections::HashMap::new();
+        let mut bases: std::collections::HashMap<(String,String), Option<String>> = std::collections::HashMap::new();
+        let mut position = 0usize;
+        let mut previous_path = String::new();
         let mut remove = Vec::new();
-        for (id, path, head, ts) in rows {
-            if dirty.contains(&path) || heads.contains(&head.as_str()) {
-                continue;
+        for (id,path,head,ts,pinned) in rows {
+            if path != previous_path { position = 0; previous_path.clone_from(&path); }
+            position = position.saturating_add(1);
+            if pinned || position <= self.config.retention_min_loops || ts >= age_cutoff { continue; }
+            if let std::collections::hash_map::Entry::Vacant(entry) = histories.entry(path.clone()) {
+                let history = match file_retention(&self.repo,&path,commits) {
+                    Ok(history) => Some(history),
+                    Err(error) => { self.log(&format!("retention kept ambiguous history for {path:?}: {error:#}")); None }
+                };
+                entry.insert(history);
             }
-            let older = if head.is_empty() {
-                ts < cutoff_ms
-            } else if let Some(older) = ancestry.get(&head) {
-                *older
-            } else {
-                let output = self
-                    .repo
-                    .command(&["merge-base", "--is-ancestor", &head, cutoff])
-                    .output()?;
-                let older = output.status.success();
-                ancestry.insert(head, older);
-                older
-            };
-            if older {
-                remove.push(id);
-            }
+            let Some(history) = histories.get(&path).and_then(Option::as_ref) else { continue; };
+            let Some((_,latest_time)) = history.touches.first() else { continue; };
+            // Git timestamps have one-second precision. Equality, clock skew,
+            // rewritten/missing history, and a bounded history miss retain data.
+            if ts >= *latest_time || !history.ordered_times || history.touches.len() <= commits { continue; }
+            let key = (path.clone(),head.clone());
+            bases.entry(key.clone()).or_insert_with(||loop_file_base(&self.repo,&path,&head).unwrap_or_default());
+            let Some(base) = bases.get(&key).and_then(Option::as_ref) else { continue; };
+            let Some(index) = history.touches.iter().position(|(sha,_)|sha==base) else { continue; };
+            // Last N commits plus their preceding baseline cover all loops
+            // made before the oldest retained commit, not just post-commit HEADs.
+            if index <= commits { continue; }
+            if ts >= history.touches[index].1 && ts < history.touches[commits].1 { remove.push(id); }
         }
         self.index.execute_batch("BEGIN IMMEDIATE")?;
         let result = (|| -> Result<()> {
             for id in &remove {
-                self.index
-                    .execute("DELETE FROM loops WHERE id=?1 AND pinned=0", [id])?;
+                self.index.execute("DELETE FROM loops WHERE id=?1 AND worktree=?2 AND pinned=0",rusqlite::params![id,self.repo.worktree])?;
                 crate::fault("during_purge");
             }
-            self.index.execute(
-                "DELETE FROM blobs WHERE hash NOT IN (SELECT blob_hash FROM loops)",
-                [],
-            )?;
+            self.index.execute("DELETE FROM blobs WHERE hash NOT IN (SELECT blob_hash FROM loops WHERE blob_hash IS NOT NULL)", [])?;
             self.index.execute("UPDATE meta SET value=(SELECT COALESCE(SUM(stored_size),0) FROM blobs) WHERE key='blob_bytes'", [])?;
             Ok(())
         })();
-        if let Err(error) = result {
-            self.index.execute_batch("ROLLBACK")?;
-            return Err(error);
-        }
+        if let Err(error) = result { self.index.execute_batch("ROLLBACK")?; return Err(error); }
         self.index.execute_batch("COMMIT")?;
         crate::fault("after_purge_commit");
         self.gc()?;

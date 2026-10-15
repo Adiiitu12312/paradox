@@ -101,7 +101,7 @@ test('two commits in one UI session attach fallback loops to the current HEAD', 
   await page.getByRole('button', { name: 'Commit 1 files', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('Commit created')
   expect(git('show', 'HEAD:sample.ts')).toBe(next.split('\n').slice(1).join('\n'))
-  const database = new DatabaseSync(join(root, '.paradox', 'index.sqlite3'), { readOnly: true })
+  const database = new DatabaseSync(join(root, '.git/paradox', 'index.sqlite3'), { readOnly: true })
   try {
     const rows = database.prepare('SELECT head_sha, message FROM loops WHERE path = ? ORDER BY id DESC').all('sample.ts')
     expect(rows.some(row => row.head_sha === firstHead && row.message === 'second session edit')).toBe(true)

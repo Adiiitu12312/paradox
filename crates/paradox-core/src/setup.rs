@@ -297,7 +297,9 @@ fn edit_config(repo: &Repo, edit: &Edit, uninstall: bool) -> Result<bool> {
 }
 
 pub fn install(repo: Repo, exe: &Path) -> Result<()> {
+    crate::migration::migrate(&repo)?;
     let store = LoopStore::open(repo)?;
+    store.config.sync_safety_flag(&store.repo.store)?;
     let repo = &store.repo;
     let mut manifest = load_manifest(repo)?;
     let hook_manifest_path = repo.store.join("setup-hooks.json");
