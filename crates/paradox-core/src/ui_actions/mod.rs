@@ -346,6 +346,18 @@ pub fn execute(
     action: Action,
     plan: Option<&Plan>,
     cancel: Cancellation,
+    on_event: impl FnMut(ProgressEvent) + Send,
+) -> Result<Value> {
+    execute_with_executable(repo, action, plan, cancel, &std::env::current_exe()?, on_event)
+}
+
+/// Embedders must provide the Paradox CLI used by mandatory commit hooks.
+pub fn execute_with_executable(
+    repo: Repo,
+    action: Action,
+    plan: Option<&Plan>,
+    cancel: Cancellation,
+    executable: &std::path::Path,
     mut on_event: impl FnMut(ProgressEvent) + Send,
 ) -> Result<Value> {
     let repo = repo.refreshed_head()?;
@@ -376,13 +388,23 @@ pub fn execute(
         git.commands.extend(safety::discard(&repo, paths)?);
         return Ok(git.finish(json!({"changed":true,"safety_loops":safety_loops})));
     }
-    if matches!(action, Action::Continue { .. }) {
+    let hooks = if matches!(action, Action::Continue { .. }) {
         // Agent-rule markers remain in the working file. Only the resolved
         // index is sanitized before Git resumes its native sequencer/commit.
         crate::commit::strip_staged(&repo)?;
-    }
+        Some(crate::commit::mandatory_hooks(&repo, executable, false)?)
+    } else {
+        None
+    };
     let argv: Vec<_> = args.iter().map(String::as_str).collect();
-    let mut command = repo.command(&argv);
+    let mut command = if let Some(hooks) = &hooks {
+        let option = format!("core.hooksPath={}", hooks.path().display());
+        let mut command = repo.command(&["-c", &option]);
+        command.args(&argv);
+        command
+    } else {
+        repo.command(&argv)
+    };
     command
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_EDITOR", "true")

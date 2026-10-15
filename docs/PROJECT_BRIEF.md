@@ -199,8 +199,8 @@ M4.5. `paradox watch`: implement and pass every requirement/test in `docs/milest
 M5. `paradox timeline` picker. Accept: W4 passes with 0, 1, 2, and 3+ commits.
 M6. UI part 1: server, security, commit graph, working tree, staging (files and hunks), commit, diff. Accept: API and Playwright tests; graph pages smoothly on the synthetic large repo.
 M7. UI part 2: branches, merge/rebase/cherry-pick/revert, stash, remotes with progress, blame, conflict resolver, destructive-action confirmations, command log panel.
-M8. UI part 3: loop timeline with one/two-point compare and rewind, then the swimlane view and rewind --at. Accept: W6 passes end to end.
-M9. Hardening: cross-platform CI green, README (install, quickstart, command reference, design notes, known limitations, how to alias git=paradox, how automatic capture works and how to set up other editors), release build instructions for a single binary per OS.
+M8. PENDING — UI part 3: loop timeline with one/two-point compare and rewind, then the swimlane view and rewind --at. Accept: W6 passes end to end.
+M9. PENDING — Hardening: cross-platform CI green, README (install, quickstart, command reference, design notes, known limitations, how to alias git=paradox, how automatic capture works and how to set up other editors), release build instructions for a single binary per OS.
 
 ## 14. WORKING AGREEMENT
 

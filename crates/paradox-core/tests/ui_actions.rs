@@ -65,14 +65,32 @@ impl Fixture {
     }
     fn run(&self, action: Action) -> Value {
         let plan = ui_actions::preview(self.repo(), action.clone()).unwrap();
-        ui_actions::execute(
+        // Core's libtest executable is not the CLI. Its hook adapter executes
+        // this crate's real stripper; CLI integration tests cover real hooks.
+        let hooks = tempfile::tempdir().unwrap();
+        let adapter = hooks.path().join("paradox-test-hook");
+        let executable = std::env::current_exe().unwrap().to_string_lossy().replace('\\', "/");
+        fs::write(&adapter, format!("#!/bin/sh\n[ \"$3\" = post-commit ] && exit 0\nexport PARADOX_CORE_HOOK_TEST=1\nexec {} --ignored --exact mandatory_hook_test_entry --nocapture\n", paradox_core::setup::shell_quote(&executable))).unwrap();
+        paradox_core::setup::executable(&adapter).unwrap();
+        ui_actions::execute_with_executable(
             self.repo(),
             action,
             Some(&plan),
             Cancellation::new(),
+            &adapter,
             |_| {},
         )
         .unwrap()
+    }
+}
+
+#[test]
+#[ignore = "invoked only by the temporary Git hook adapter"]
+fn mandatory_hook_test_entry() {
+    if std::env::var_os("PARADOX_CORE_HOOK_TEST").is_some() {
+        let cwd = std::env::current_dir().unwrap();
+        let repo = Repo::discover(&["-C".into(), cwd.into_os_string()]).unwrap();
+        paradox_core::commit::strip_staged(&repo).unwrap();
     }
 }
 

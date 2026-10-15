@@ -85,40 +85,7 @@ pub fn execute_commit(
             return Ok(CommitOutcome { code, commands });
         }
     }
-    let temporary = tempfile::Builder::new()
-        .prefix("paradox-commit-hooks-")
-        .tempdir()?;
-    let hooks = crate::setup::hooks_dir(&repo)?;
-    if hooks.is_dir() {
-        for entry in fs::read_dir(&hooks)? {
-            let entry = entry?;
-            if !crate::setup::runnable(&entry.path()) {
-                continue;
-            }
-            let name = entry.file_name();
-            if name == "pre-commit" || name == "post-commit" || (no_verify && name == "commit-msg")
-            {
-                continue;
-            }
-            let script = crate::setup::hook_script(executable, Some(&entry.path()), None)?;
-            let path = temporary.path().join(name);
-            fs::write(&path, script)?;
-            crate::setup::executable(&path)?;
-        }
-    }
-    for event in ["pre-commit", "post-commit"] {
-        let previous = hooks.join(event);
-        let previous = crate::setup::runnable(&previous).then_some(previous);
-        let previous = if no_verify && event == "pre-commit" {
-            None
-        } else {
-            previous.as_deref()
-        };
-        let script = crate::setup::hook_script(executable, previous, Some(event))?;
-        let path = temporary.path().join(event);
-        fs::write(&path, script)?;
-        crate::setup::executable(&path)?;
-    }
+    let temporary = mandatory_hooks(&repo, executable, no_verify)?;
     let hook_option = format!("core.hooksPath={}", temporary.path().display());
     let command = if existing_index {
         let mut command = repo.command(&["-c", &hook_option, "commit"]);
@@ -144,6 +111,48 @@ pub fn execute_commit(
         crate::store::log_at(&log, &format!("post-commit purge: {error:#}"));
     }
     Ok(CommitOutcome { code, commands })
+}
+
+/// Keep the returned directory alive until Git and its sequencer children exit.
+/// Each native commit hook runs its original first, then mandatory index-only
+/// stripping. prepare-commit-msg also covers sequencer commits using no-verify.
+pub fn mandatory_hooks(repo: &Repo, executable: &Path, no_verify: bool) -> Result<tempfile::TempDir> {
+    let temporary = tempfile::Builder::new()
+        .prefix("paradox-commit-hooks-")
+        .tempdir()?;
+    let hooks = crate::setup::hooks_dir(&repo)?;
+    if hooks.is_dir() {
+        for entry in fs::read_dir(&hooks)? {
+            let entry = entry?;
+            if !crate::setup::runnable(&entry.path()) {
+                continue;
+            }
+            let name = entry.file_name();
+            if name == "pre-commit" || name == "post-commit" || name == "commit-msg" || name == "prepare-commit-msg"
+            {
+                continue;
+            }
+            let script = crate::setup::hook_script(executable, Some(&entry.path()), None)?;
+            let path = temporary.path().join(name);
+            fs::write(&path, script)?;
+            crate::setup::executable(&path)?;
+        }
+    }
+    for event in ["pre-commit", "prepare-commit-msg", "commit-msg", "post-commit"] {
+        let previous = hooks.join(event);
+        let previous = crate::setup::runnable(&previous).then_some(previous);
+        let previous = if no_verify && matches!(event, "pre-commit" | "commit-msg") {
+            None
+        } else {
+            previous.as_deref()
+        };
+        let mandatory_event = if event == "post-commit" { "post-commit" } else { "pre-commit" };
+        let script = crate::setup::hook_script(executable, previous, Some(mandatory_event))?;
+        let path = temporary.path().join(event);
+        fs::write(&path, script)?;
+        crate::setup::executable(&path)?;
+    }
+    Ok(temporary)
 }
 
 fn index_path(repo: &Repo) -> Result<PathBuf> {
