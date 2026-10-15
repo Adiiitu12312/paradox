@@ -567,11 +567,13 @@ fn noisy_text(seed: u32) -> Vec<u8> {
 }
 
 #[test]
-fn insufficient_batch_backup_space_changes_no_working_file() {
+fn batch_rewind_above_soft_cap_keeps_durable_undo_and_user_pins() {
     let root = fixture();
     let mut store = open(root.path());
     let old_a = save(&mut store, "a.ts", &noisy_text(0));
     let old_b = save(&mut store, "b.ts", &noisy_text(1));
+    store.pin_loop(old_a, true).unwrap();
+    store.pin_loop(old_b, true).unwrap();
     let new_a = noisy_text(2);
     let new_b = noisy_text(3);
     save(&mut store, "a.ts", &new_a);
@@ -587,9 +589,38 @@ fn insufficient_batch_backup_space_changes_no_working_file() {
         },
     ];
     store.config.store_cap_bytes = 150_000;
-    assert!(store.apply_rewinds(&plans).is_err());
+    let completed = store.apply_rewinds(&plans).unwrap();
+    assert_eq!(completed.len(), 2);
+    assert_eq!(fs::read(root.path().join("a.ts")).unwrap(), noisy_text(0));
+    assert_eq!(fs::read(root.path().join("b.ts")).unwrap(), noisy_text(1));
+    assert!(store.bytes().unwrap() > store.config.store_cap_bytes);
+    let log = fs::read_to_string(store.repo.store.join("log")).unwrap();
+    assert!(log.contains("Storage cap cannot be met"), "{log}");
+    drop(store);
+
+    // Reopening proves that every displaced working version was persisted,
+    // rather than merely retained in the batch's in-memory protection list.
+    let mut store = open(root.path());
+    store.config.store_cap_bytes = 150_000;
+    for (path, id) in &completed {
+        let backup = store.resolve(path, &id.to_string()).unwrap();
+        let expected = if path == "a.ts" { &new_a } else { &new_b };
+        assert_eq!(store.version_bytes(path, &backup).unwrap(), *expected);
+        let records = store.loops(path).unwrap();
+        assert_eq!(records.iter().find(|row| row.id == *id).unwrap().kind, "safety");
+    }
+    store.rewind_file(Path::new("a.ts"), "undo").unwrap();
+    store.rewind_file(Path::new("b.ts"), "undo").unwrap();
     assert_eq!(fs::read(root.path().join("a.ts")).unwrap(), new_a);
     assert_eq!(fs::read(root.path().join("b.ts")).unwrap(), new_b);
+    for (path, id, bytes) in [
+        ("a.ts", old_a, noisy_text(0)),
+        ("b.ts", old_b, noisy_text(1)),
+    ] {
+        let target = store.resolve(path, &id.to_string()).unwrap();
+        assert_eq!(store.version_bytes(path, &target).unwrap(), bytes);
+        assert!(store.loops(path).unwrap().iter().find(|row| row.id == id).unwrap().pinned);
+    }
     assert_eq!(
         store
             .index
@@ -605,6 +636,11 @@ fn insufficient_batch_backup_space_changes_no_working_file() {
             .unwrap(),
         0
     );
-    assert_eq!(store.loops("a.ts").unwrap().len(), 2);
-    assert_eq!(store.loops("b.ts").unwrap().len(), 2);
+    for path in ["a.ts", "b.ts"] {
+        for record in store.loops(path).unwrap() {
+            if !record.deleted {
+                store.blobs.get(&record.blob_hash).unwrap();
+            }
+        }
+    }
 }

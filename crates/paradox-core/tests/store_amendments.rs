@@ -56,13 +56,13 @@ fn common_store_needs_no_exclusion_and_legacy_migration_keeps_ids_and_bytes() {
         store.loops("a.ts").unwrap()[0].id
     };
     assert_eq!(fs::read(&exclude).unwrap_or_default(), before);
-    fs::rename(&expected, root.join(".git/paradox")).unwrap();
+    fs::rename(&expected, root.join(".paradox")).unwrap();
     assert!(
         LoopStore::open(repo(root)).is_err(),
         "must not silently abandon legacy history"
     );
     paradox_core::migration::migrate(&repo(root)).unwrap();
-    assert!(!root.join(".git/paradox").exists());
+    assert!(!root.join(".paradox").exists());
     let mut store = LoopStore::open(repo(root)).unwrap();
     let loops = store.loops("a.ts").unwrap();
     assert_eq!(loops[0].id, id);
@@ -87,11 +87,11 @@ fn migration_refuses_two_stores_without_removing_either() {
     let directory = fixture();
     let root = directory.path();
     drop(LoopStore::open(repo(root)).unwrap());
-    fs::create_dir(root.join(".git/paradox")).unwrap();
-    fs::write(root.join(".git/paradox/precious"), b"preserve me").unwrap();
+    fs::create_dir(root.join(".paradox")).unwrap();
+    fs::write(root.join(".paradox/precious"), b"preserve me").unwrap();
     assert!(paradox_core::migration::migrate(&repo(root)).is_err());
     assert_eq!(
-        fs::read(root.join(".git/paradox/precious")).unwrap(),
+        fs::read(root.join(".paradox/precious")).unwrap(),
         b"preserve me"
     );
     assert!(root.join(".git/paradox/index.sqlite3").is_file());

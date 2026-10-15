@@ -34,8 +34,14 @@ fn ok(output: Output) -> String {
 fn git(root: &Path, args: &[&str]) -> String {
     ok(command(root, "git").args(args).output().unwrap())
 }
-fn git_commit_at(root:&Path,message:&str,time:i64){
-    let date=format!("{time} +0000");ok(command(root,"git").args(["commit","-qm",message]).env("GIT_AUTHOR_DATE",&date).env("GIT_COMMITTER_DATE",&date).output().unwrap());
+fn git_commit_at(root: &Path, message: &str, time: i64) {
+    let date = format!("{time} +0000");
+    ok(command(root, "git")
+        .args(["commit", "-qm", message])
+        .env("GIT_AUTHOR_DATE", &date)
+        .env("GIT_COMMITTER_DATE", &date)
+        .output()
+        .unwrap());
 }
 
 fn open(root: &Path) -> LoopStore {
@@ -65,7 +71,11 @@ fn failing_original_post_commit_does_not_prevent_retention_after_successful_git_
         .output()
         .unwrap());
 
-    fs::write(open(root).repo.store.join("config.toml"),"retention_hours=0\nretention_min_loops=0\n").unwrap();
+    fs::write(
+        open(root).repo.store.join("config.toml"),
+        "retention_hours=0\nretention_min_loops=0\n",
+    )
+    .unwrap();
 
     let mut pinned = 0;
     for n in 1..=6 {
@@ -74,16 +84,23 @@ fn failing_original_post_commit_does_not_prevent_retention_after_successful_git_
         // Raw Git proves that its installed post-commit chain performs purge;
         // no wrapper-level purge is available to hide an early hook exit.
         git(root, &["add", "a.ts"]);
-        let commit_time=1_767_225_600+i64::from(n)*3600;
-        git_commit_at(root,&format!("change {n}"),commit_time);
+        let commit_time = 1_767_225_600 + i64::from(n) * 3600;
+        git_commit_at(root, &format!("change {n}"), commit_time);
         assert_eq!(git(root, &["show", "HEAD:a.ts"]), format!("body {n}\n"));
         assert_eq!(fs::read(root.join("a.ts")).unwrap(), working.as_bytes());
         {
-            let store = open(root);let current=store.loops("a.ts").unwrap()[0].id;
-            store.index.execute("UPDATE loops SET ts=?1 WHERE id=?2",(commit_time*1000-500,current)).unwrap();
+            let store = open(root);
+            let current = store.loops("a.ts").unwrap()[0].id;
+            store
+                .index
+                .execute(
+                    "UPDATE loops SET ts=?1 WHERE id=?2",
+                    (commit_time * 1000 - 500, current),
+                )
+                .unwrap();
             if n == 1 {
-            pinned = store.loops("a.ts").unwrap()[0].id;
-            store.pin_loop(pinned, true).unwrap();
+                pinned = store.loops("a.ts").unwrap()[0].id;
+                store.pin_loop(pinned, true).unwrap();
             }
         }
     }

@@ -23,8 +23,19 @@ fn git(root: &Path, args: &[&str]) {
     let o = command(root, "git").args(args).output().unwrap();
     assert!(o.status.success(), "{}", String::from_utf8_lossy(&o.stderr));
 }
-fn git_commit_at(root:&Path,message:&str,time:i64){
-    let date=format!("{time} +0000");let output=command(root,"git").args(["commit","-qm",message]).env("GIT_AUTHOR_DATE",&date).env("GIT_COMMITTER_DATE",&date).output().unwrap();assert!(output.status.success(),"{}",String::from_utf8_lossy(&output.stderr));
+fn git_commit_at(root: &Path, message: &str, time: i64) {
+    let date = format!("{time} +0000");
+    let output = command(root, "git")
+        .args(["commit", "-qm", message])
+        .env("GIT_AUTHOR_DATE", &date)
+        .env("GIT_COMMITTER_DATE", &date)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 fn open(root: &Path) -> LoopStore {
     LoopStore::open(Repo::discover(&["-C".into(), root.as_os_str().to_owned()]).unwrap()).unwrap()
@@ -41,22 +52,36 @@ fn death_during_or_after_purge_is_repairable_without_losing_pins() {
         fs::write(root.join("a.ts"), "base\n").unwrap();
         git(root, &["add", "a.ts"]);
         git_commit_at(root, "base", 1_767_225_600);
-        fs::write(open(root).repo.store.join("config.toml"),"retention_hours=0\nretention_min_loops=0\n").unwrap();
+        fs::write(
+            open(root).repo.store.join("config.toml"),
+            "retention_hours=0\nretention_min_loops=0\n",
+        )
+        .unwrap();
         let mut pin = 0;
         for n in 0..6 {
             fs::write(root.join("a.ts"), format!("version {n}\n")).unwrap();
             {
                 let mut s = open(root);
                 s.capture(&[]).unwrap();
-                let id=s.loops("a.ts").unwrap()[0].id;let commit_time=1_767_225_600+i64::from(n+1)*3600;
-                s.index.execute("UPDATE loops SET ts=?1 WHERE id=?2",(commit_time*1000-500,id)).unwrap();
+                let id = s.loops("a.ts").unwrap()[0].id;
+                let commit_time = 1_767_225_600 + i64::from(n + 1) * 3600;
+                s.index
+                    .execute(
+                        "UPDATE loops SET ts=?1 WHERE id=?2",
+                        (commit_time * 1000 - 500, id),
+                    )
+                    .unwrap();
                 if n == 0 {
                     pin = s.loops("a.ts").unwrap()[0].id;
                     s.pin_loop(pin, true).unwrap();
                 }
             }
             git(root, &["add", "a.ts"]);
-            git_commit_at(root,&format!("commit {n}"),1_767_225_600+i64::from(n+1)*3600);
+            git_commit_at(
+                root,
+                &format!("commit {n}"),
+                1_767_225_600 + i64::from(n + 1) * 3600,
+            );
         }
         let status = command(root, env!("CARGO_BIN_EXE_paradox"))
             .args(["loop", "--gc"])
@@ -80,10 +105,16 @@ fn death_during_or_after_purge_is_repairable_without_losing_pins() {
             "ok"
         );
         let loops = s.loops("a.ts").unwrap();
-        assert_eq!(loops.len(),4,"real eligible deletions must have completed after recovery");
+        assert_eq!(
+            loops.len(),
+            4,
+            "real eligible deletions must have completed after recovery"
+        );
         assert!(loops.iter().any(|l| l.id == pin && l.pinned));
         for l in loops {
-            if !l.deleted { assert!(s.blobs.exists(&l.blob_hash).unwrap()); }
+            if !l.deleted {
+                assert!(s.blobs.exists(&l.blob_hash).unwrap());
+            }
         }
     }
 }

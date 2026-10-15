@@ -537,6 +537,11 @@ impl LoopStore {
             return Ok((false, false, true));
         }
         let Some(meta) = meta? else {
+            match fs::symlink_metadata(self.repo.root.join(path)) {
+                Ok(_) => return Ok((false, false, true)), // Existing links/directories are skipped, not deletions.
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => {},
+                Err(error) => return Err(error.into()),
+            }
             let latest: Option<bool> = self.index.query_row(
                 "SELECT deleted FROM loops WHERE worktree=?1 AND path=?2 ORDER BY ts DESC,id DESC LIMIT 1",
                 params![self.repo.worktree,path], |row| row.get(0)).optional()?;
