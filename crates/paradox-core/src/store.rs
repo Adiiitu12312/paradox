@@ -275,10 +275,16 @@ impl LoopStore {
     ) -> Result<WatchCapture> {
         // The repository lock spans both reads and capture, so this range can
         // contain only rows inserted by this watcher call, never other agents.
-        let before: i64 = self.index.query_row("SELECT COALESCE(MAX(id),0) FROM loops", [], |r| r.get(0))?;
+        let before: i64 =
+            self.index
+                .query_row("SELECT COALESCE(MAX(id),0) FROM loops", [], |r| r.get(0))?;
         let result = self.capture_inner(inputs, bulk.then_some("bulk change"));
-        let created: Vec<(i64, String)> = self.index.prepare("SELECT id,path FROM loops WHERE id>?1 AND worktree=?2 ORDER BY id")?
-            .query_map(params![before,self.repo.worktree], |r| Ok((r.get(0)?,r.get(1)?)))?
+        let created: Vec<(i64, String)> = self
+            .index
+            .prepare("SELECT id,path FROM loops WHERE id>?1 AND worktree=?2 ORDER BY id")?
+            .query_map(params![before, self.repo.worktree], |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })?
             .collect::<rusqlite::Result<_>>()?;
         let report = match result {
             Ok(report) => report,
@@ -287,7 +293,10 @@ impl LoopStore {
                 // some durable insertions; the running watcher must not lose
                 // the ability to classify its own surviving rows.
                 self.log(&format!("watch capture: {error:#}"));
-                CaptureReport { saved: created.len(), ..CaptureReport::default() }
+                CaptureReport {
+                    saved: created.len(),
+                    ..CaptureReport::default()
+                }
             }
         };
         Ok(WatchCapture { report, created })
@@ -295,17 +304,21 @@ impl LoopStore {
 
     /// Classify only IDs proven to have been inserted by this watcher. Pins and
     /// rows from editor/agent captures are never deleted by bulk coalescing.
-    pub(crate) fn classify_watch_bulk(&mut self, owned: &[(i64, String)], collapse: bool) -> Result<()> {
+    pub(crate) fn classify_watch_bulk(
+        &mut self,
+        owned: &[(i64, String)],
+        collapse: bool,
+    ) -> Result<()> {
         self.index.execute_batch("BEGIN IMMEDIATE")?;
         let result = (|| -> Result<()> {
             let mut latest: HashMap<&str, i64> = HashMap::new();
-            for (id,path) in owned {
+            for (id, path) in owned {
                 if self.index.execute("UPDATE loops SET kind='scan',message='bulk change',auto_label=1 WHERE id=?1 AND worktree=?2 AND path=?3 AND pinned=0", params![id,self.repo.worktree,path])? != 0 {
                     latest.entry(path).and_modify(|last| *last=(*last).max(*id)).or_insert(*id);
                 }
             }
             if collapse {
-                for (id,path) in owned {
+                for (id, path) in owned {
                     if latest.get(path.as_str()).is_some_and(|last| last != id) {
                         self.index.execute("DELETE FROM loops WHERE id=?1 AND worktree=?2 AND path=?3 AND pinned=0", params![id,self.repo.worktree,path])?;
                     }
@@ -314,8 +327,13 @@ impl LoopStore {
             Ok(())
         })();
         match result {
-            Ok(()) => self.index.execute_batch("COMMIT; PRAGMA wal_checkpoint(TRUNCATE);")?,
-            Err(error) => { self.index.execute_batch("ROLLBACK")?; return Err(error); },
+            Ok(()) => self
+                .index
+                .execute_batch("COMMIT; PRAGMA wal_checkpoint(TRUNCATE);")?,
+            Err(error) => {
+                self.index.execute_batch("ROLLBACK")?;
+                return Err(error);
+            }
         }
         Ok(())
     }
@@ -734,7 +752,10 @@ impl LoopStore {
         // orphan blobs conservatively charged. Reclaim those references here;
         // the durable commit still precedes orphan-file cleanup below.
         let garbage = match (|| -> Result<Vec<String>> {
-            self.index.execute("DELETE FROM blobs WHERE hash NOT IN (SELECT blob_hash FROM loops)", [])?;
+            self.index.execute(
+                "DELETE FROM blobs WHERE hash NOT IN (SELECT blob_hash FROM loops)",
+                [],
+            )?;
             self.index.execute("UPDATE meta SET value=(SELECT COALESCE(SUM(stored_size),0) FROM blobs) WHERE key='blob_bytes'", [])?;
             self.evict()
         })() {
@@ -809,5 +830,82 @@ pub fn log_at(root: &Path, message: &str) {
     if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
         let message: String = message.chars().take(1024).collect();
         let _ = writeln!(file, "{} {message}", now().unwrap_or_default());
+    }
+}
+
+#[cfg(test)]
+mod watch_bulk_tests {
+    use super::*;
+    use std::process::Command;
+
+    fn git(root: &Path, args: &[&str]) {
+        let output = Command::new("git").args(args).current_dir(root)
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", root.join("absent-global"))
+            .env("GIT_AUTHOR_NAME", "Paradox Test")
+            .env("GIT_AUTHOR_EMAIL", "test@example.invalid")
+            .env("GIT_COMMITTER_NAME", "Paradox Test")
+            .env("GIT_COMMITTER_EMAIL", "test@example.invalid")
+            .env_remove("GIT_DIR").env_remove("GIT_WORK_TREE").env_remove("GIT_INDEX_FILE")
+            .output().unwrap();
+        assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    }
+
+    fn watch_save(store: &mut LoopStore, bytes: &[u8]) -> i64 {
+        let path = store.repo.root.join("a.ts");
+        fs::write(&path, bytes).unwrap();
+        let capture = store.capture_watch(&[path], false).unwrap();
+        assert_eq!(capture.created.len(), 1);
+        assert_eq!(capture.report.saved, 1);
+        capture.created[0].0
+    }
+
+    #[test]
+    fn bulk_classification_preserves_pins_and_other_writers_then_gc_reclaims_only_orphans() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path();
+        git(root, &["init", "-q", "--initial-branch=main"]);
+        git(root, &["config", "core.hooksPath", "no-hooks"]);
+        git(root, &["config", "core.autocrlf", "false"]);
+        git(root, &["config", "commit.gpgsign", "false"]);
+        fs::write(root.join("a.ts"), "base\n").unwrap();
+        git(root, &["add", "a.ts"]);
+        git(root, &["commit", "-qm", "base"]);
+        let repo = Repo::discover(&["-C".into(), root.as_os_str().to_owned()]).unwrap();
+        let mut store = LoopStore::open(repo).unwrap();
+        let pinned = watch_save(&mut store, b"//> pinned watcher\npinned state\n");
+        store.pin_loop(pinned, true).unwrap();
+        let old = watch_save(&mut store, b"//> old watcher\nold\n");
+        let old_hash = store.loops("a.ts").unwrap()[0].blob_hash.clone();
+        fs::write(root.join("a.ts"), "//> independent editor\nindependent editor state\n").unwrap();
+        assert_eq!(store.capture(&[root.join("a.ts")]).unwrap().saved, 1);
+        let editor = store.loops("a.ts").unwrap()[0].clone();
+        let latest_bytes = b"//> newest watcher\nlatest state must survive bulk collapse\n";
+        let latest = watch_save(&mut store, latest_bytes);
+        let owned = vec![(pinned, "a.ts".into()), (old, "a.ts".into()), (latest, "a.ts".into())];
+        store.classify_watch_bulk(&owned, false).unwrap();
+        let promoted = store.loops("a.ts").unwrap();
+        for id in [old, latest] {
+            let row = promoted.iter().find(|row| row.id == id).unwrap();
+            assert_eq!((&*row.kind, &*row.message), ("scan", "bulk change"));
+        }
+        store.classify_watch_bulk(&owned, true).unwrap();
+        let retained = store.loops("a.ts").unwrap();
+        assert_eq!(retained.len(), 3);
+        assert!(!retained.iter().any(|row| row.id == old));
+        let pin = retained.iter().find(|row| row.id == pinned).unwrap();
+        assert!(pin.pinned);
+        assert_eq!((&*pin.kind, &*pin.message), ("save", "pinned watcher"));
+        let untouched = retained.iter().find(|row| row.id == editor.id).unwrap();
+        assert_eq!((&untouched.kind, &untouched.message, &untouched.blob_hash), (&editor.kind, &editor.message, &editor.blob_hash));
+        let newest = retained.iter().find(|row| row.id == latest).unwrap();
+        assert_eq!(store.blobs.get(&newest.blob_hash).unwrap(), latest_bytes);
+        assert!(store.blobs.exists(&old_hash));
+        store.gc().unwrap();
+        assert!(!store.blobs.exists(&old_hash));
+        assert_eq!(store.index.query_row("SELECT COUNT(*) FROM blobs WHERE hash NOT IN (SELECT blob_hash FROM loops)", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+        assert_eq!(store.index.query_row("SELECT COUNT(*) FROM loops WHERE blob_hash NOT IN (SELECT hash FROM blobs)", [], |r| r.get::<_, i64>(0)).unwrap(), 0);
+        assert_eq!(store.index.query_row("PRAGMA integrity_check", [], |r| r.get::<_, String>(0)).unwrap(), "ok");
+        for row in store.loops("a.ts").unwrap() { assert!(store.blobs.exists(&row.blob_hash)); }
     }
 }

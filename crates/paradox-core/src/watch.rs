@@ -401,11 +401,17 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
         loop {
             let clock = Instant::now();
             if let Some(threshold) = bulk_started.take() {
-                bulk_owned.extend(owned_recent.drain(..)
-                    .filter(|(_,_,event)| threshold.saturating_duration_since(*event) <= Duration::from_secs(2))
-                    .map(|(id,path,_)| (id,path)));
+                bulk_owned.extend(
+                    owned_recent
+                        .drain(..)
+                        .filter(|(_, _, event)| {
+                            threshold.saturating_duration_since(*event) <= Duration::from_secs(2)
+                        })
+                        .map(|(id, path, _)| (id, path)),
+                );
                 if let Err(error) = LoopStore::open(repo.clone())
-                    .and_then(|mut store| store.classify_watch_bulk(&bulk_owned, false)) {
+                    .and_then(|mut store| store.classify_watch_bulk(&bulk_owned, false))
+                {
                     log_at(&repo.store, &format!("watch bulk promotion: {error:#}"));
                 }
             }
@@ -441,7 +447,10 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
                     );
                 }
                 let result = if paths.is_empty() {
-                    Ok(crate::store::WatchCapture { report: crate::store::CaptureReport::default(), created: Vec::new() })
+                    Ok(crate::store::WatchCapture {
+                        report: crate::store::CaptureReport::default(),
+                        created: Vec::new(),
+                    })
                 } else {
                     Repo::discover(&repo.globals)
                         .and_then(LoopStore::open)
@@ -450,13 +459,16 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
                 match result {
                     Ok(capture) => {
                         state.loops_created += capture.report.saved as u64;
-                        if bulk { bulk_owned.extend(capture.created); }
-                        else {
-                            owned_recent.extend(capture.created.into_iter().filter_map(|(id,path)| {
-                                pending.get(&path).map(|times| (id,path.clone(),times.1))
-                            }));
+                        if bulk {
+                            bulk_owned.extend(capture.created);
+                        } else {
+                            owned_recent.extend(capture.created.into_iter().filter_map(
+                                |(id, path)| {
+                                    pending.get(&path).map(|times| (id, path.clone(), times.1))
+                                },
+                            ));
                         }
-                    },
+                    }
                     Err(error) => log_at(&repo.store, &format!("watch capture: {error:#}")),
                 }
                 for name in eligible {
@@ -464,7 +476,8 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
                 }
                 if bulk {
                     if let Err(error) = LoopStore::open(repo.clone())
-                        .and_then(|mut store| store.classify_watch_bulk(&bulk_owned, true)) {
+                        .and_then(|mut store| store.classify_watch_bulk(&bulk_owned, true))
+                    {
                         log_at(&repo.store, &format!("watch bulk collapse: {error:#}"));
                     }
                     bulk_owned.clear();
@@ -521,15 +534,25 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
                             processed_time = processed_time.max(clock);
                             pending
                                 .entry(name.clone())
-                                .and_modify(|times| { times.0 = times.0.min(clock); times.1 = times.1.max(clock); })
+                                .and_modify(|times| {
+                                    times.0 = times.0.min(clock);
+                                    times.1 = times.1.max(clock);
+                                })
                                 .or_insert((clock, clock));
                             recent.retain(|_, when| {
-                                processed_time.saturating_duration_since(*when) <= Duration::from_secs(2)
+                                processed_time.saturating_duration_since(*when)
+                                    <= Duration::from_secs(2)
                             });
-                            recent.entry(name).and_modify(|when| *when=(*when).max(clock)).or_insert(clock);
+                            recent
+                                .entry(name)
+                                .and_modify(|when| *when = (*when).max(clock))
+                                .or_insert(clock);
                             last_change = last_change.max(clock);
                             if !bulk {
-                                owned_recent.retain(|(_,_,when)| processed_time.saturating_duration_since(*when) <= Duration::from_secs(2));
+                                owned_recent.retain(|(_, _, when)| {
+                                    processed_time.saturating_duration_since(*when)
+                                        <= Duration::from_secs(2)
+                                });
                             }
                             if recent.len() > 50 && !bulk {
                                 bulk = true;
@@ -550,18 +573,28 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
                                 let clock = event_time;
                                 processed_time = processed_time.max(clock);
                                 recent.retain(|_, when| {
-                                    processed_time.saturating_duration_since(*when) <= Duration::from_secs(2)
+                                    processed_time.saturating_duration_since(*when)
+                                        <= Duration::from_secs(2)
                                 });
                                 for name in coverage.files.difference(&previous) {
                                     pending
                                         .entry(name.clone())
-                                        .and_modify(|times| { times.0 = times.0.min(clock); times.1 = times.1.max(clock); })
+                                        .and_modify(|times| {
+                                            times.0 = times.0.min(clock);
+                                            times.1 = times.1.max(clock);
+                                        })
                                         .or_insert((clock, clock));
-                                    recent.entry(name.clone()).and_modify(|when| *when=(*when).max(clock)).or_insert(clock);
+                                    recent
+                                        .entry(name.clone())
+                                        .and_modify(|when| *when = (*when).max(clock))
+                                        .or_insert(clock);
                                     last_change = last_change.max(clock);
                                 }
                                 if !bulk {
-                                    owned_recent.retain(|(_,_,when)| processed_time.saturating_duration_since(*when) <= Duration::from_secs(2));
+                                    owned_recent.retain(|(_, _, when)| {
+                                        processed_time.saturating_duration_since(*when)
+                                            <= Duration::from_secs(2)
+                                    });
                                 }
                                 if recent.len() > 50 && !bulk {
                                     bulk = true;
