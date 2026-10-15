@@ -116,6 +116,7 @@ test('virtualizes and pages the native graph of a 100,000-commit repository', as
   await page.getByRole('button', { name: 'Refresh', exact: true }).click()
   await page.getByRole('button', { name: 'History', exact: true }).click()
   await expect(page.getByRole('button', { name: /Large history 99999/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Large history 99999/ })).toContainText('HEAD')
   expect(await page.locator('.graph-row').count()).toBeLessThan(60)
   await page.locator('.graph-scroll').evaluate(element => { element.scrollTop = element.scrollHeight })
   await expect(page.getByRole('button', { name: /Large history 99800/ })).toBeVisible()

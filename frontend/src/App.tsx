@@ -30,10 +30,20 @@ export function App({ api: suppliedApi, session = true }: { api?: WorkspaceApi; 
   const [amend, setAmend] = useState(false)
   const [notice, setNotice] = useState('')
   const [connection, setConnection] = useState('connecting')
-  const [theme, setTheme] = useState<'light' | 'dark'>(() => localStorage.getItem('paradox-theme') === 'light' ? 'light' : 'dark')
+  const [theme, setTheme] = useState<'light' | 'dark'>(() => {
+    const stored = localStorage.getItem('paradox-theme')
+    return stored === 'light' || stored === 'dark' ? stored : matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
+  })
   const amendDialog = useRef<HTMLDialogElement>(null)
 
-  useEffect(() => { document.documentElement.dataset.theme = theme; localStorage.setItem('paradox-theme', theme) }, [theme])
+  useEffect(() => { document.documentElement.dataset.theme = theme }, [theme])
+  useEffect(() => {
+    const system = matchMedia('(prefers-color-scheme: dark)')
+    const change = () => { if (!localStorage.getItem('paradox-theme')) setTheme(system.matches ? 'dark' : 'light') }
+    system.addEventListener('change', change)
+    return () => system.removeEventListener('change', change)
+  }, [])
+  function toggleTheme() { const next = theme === 'dark' ? 'light' : 'dark'; localStorage.setItem('paradox-theme', next); setTheme(next) }
   useEffect(() => session ? connectSession(setConnection) : undefined, [session])
   useEffect(() => {
     const controller = new AbortController()
@@ -85,7 +95,7 @@ export function App({ api: suppliedApi, session = true }: { api?: WorkspaceApi; 
       <nav aria-label="Workspace"><button aria-current={tab === 'changes' ? 'page' : undefined} onClick={() => { setTab('changes'); setDetail(null); setQuery(null); setDiff(null) }}><FileIcon />Changes<span className="count">{status?.files.length ?? '—'}</span></button><button aria-current={tab === 'graph' ? 'page' : undefined} onClick={() => { setTab('graph'); setQuery(null); setDiff(null) }}><CommitIcon />History</button></nav>
       <div className="sidebar-note"><span className={`status-dot ${connection === 'connected' ? 'online' : ''}`} />{connection === 'connected' ? 'Local session' : connection === 'closed' ? 'Session disconnected' : 'Connecting session'}<p>Git on your machine.<br />Your files stay here.</p></div>
     </aside>
-    <main className="main"><header className="topbar"><div><span className="muted">Workspace</span><ChevronRightIcon /><h1>{tab === 'changes' ? 'Changes' : 'History'}</h1></div><div className="toolbar"><button className="icon-button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} onClick={() => setTheme(theme === 'dark' ? 'light' : 'dark')}>{theme === 'dark' ? <SunIcon /> : <MoonIcon />}</button><button disabled={busy} onClick={refresh}><ReloadIcon />Refresh</button></div></header>
+    <main className="main"><header className="topbar"><div><span className="muted">Workspace</span><ChevronRightIcon /><h1>{tab === 'changes' ? 'Changes' : 'History'}</h1></div><div className="toolbar"><button className="icon-button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} onClick={toggleTheme}>{theme === 'dark' ? <SunIcon /> : <MoonIcon />}</button><button disabled={busy} onClick={refresh}><ReloadIcon />Refresh</button></div></header>
       {error && <div role="alert" className="banner error">{error}<button onClick={() => setError('')}>Dismiss</button></div>}
       {notice && <div role="status" className="banner notice">{notice}</div>}
       {connection === 'closed' && session && <div className="banner error">Session ended. Run <code>paradox ui</code> again to reconnect.</div>}
@@ -118,5 +128,5 @@ function Graph({ graph, selected, select }: { graph: GraphPage | null; selected?
   const virtual = useVirtualizer({ count: graph?.commits.length ?? 0, getScrollElement: () => scroll.current, estimateSize: () => 66, overscan: 10 })
   const layout = useMemo(() => deriveGraph(graph?.commits ?? []), [graph])
   const graphWidth = Math.max(48, layout.width)
-  return <div className="graph-scroll" ref={scroll} role="region" tabIndex={0} aria-label="Commit history">{!graph?.commits.length ? <div className="empty"><h3>No commits yet</h3><p>Create your first commit from Changes.</p></div> : <div style={{ height: virtual.getTotalSize(), minWidth: graphWidth + 350, position: 'relative' }}>{virtual.getVirtualItems().map(row => { const commit = graph.commits[row.index]; const node = layout.rows[row.index]; return <button key={commit.sha} className={`graph-row ${selected === commit.sha ? 'selected' : ''}`} style={{ height: row.size, transform: `translateY(${row.start}px)` }} onClick={() => select(commit.sha)}><svg className="graph-lines" width={graphWidth} height="66" aria-hidden="true">{node.edges.filter(edge => edge.to >= 0).map((edge, index) => <path key={index} d={`M${12 + edge.from * 13} ${edge.from === node.lane ? 33 : 0} C${12 + edge.from * 13} 49, ${12 + edge.to * 13} 49, ${12 + edge.to * 13} 66`} fill="none" stroke="var(--accent)" strokeWidth="1.4" />)}{node.incoming && <path d={`M${12 + node.lane * 13} 0V33`} stroke="var(--accent)" strokeWidth="1.4" />}<circle cx={12 + node.lane * 13} cy="33" r="4" fill="var(--bg)" stroke="var(--accent)" strokeWidth="2" /></svg><span className="graph-description"><span className="truncate">{commit.subject || '(no subject)'}</span><span className="muted graph-subtitle"><code>{commit.sha.slice(0, 7)}</code><span className="truncate">{commit.author_name}</span><time>{relativeDate(commit.time)}</time></span></span>{commit.refs.length > 0 && <span className="ref-badge" title={commit.refs.join('\n')}>{shortRef(commit.refs[0])}{commit.refs.length > 1 ? ` +${commit.refs.length - 1}` : ''}</span>}</button> })}</div>}</div>
+  return <div className="graph-scroll" ref={scroll} role="region" tabIndex={0} aria-label="Commit history">{!graph?.commits.length ? <div className="empty"><h3>No commits yet</h3><p>Create your first commit from Changes.</p></div> : <div style={{ height: virtual.getTotalSize(), minWidth: graphWidth + 350, position: 'relative' }}>{virtual.getVirtualItems().map(row => { const commit = graph.commits[row.index]; const node = layout.rows[row.index]; return <button key={commit.sha} className={`graph-row ${selected === commit.sha ? 'selected' : ''}`} style={{ height: row.size, transform: `translateY(${row.start}px)` }} onClick={() => select(commit.sha)}><svg className="graph-lines" width={graphWidth} height="66" aria-hidden="true">{node.edges.filter(edge => edge.to >= 0).map((edge, index) => <path key={index} d={`M${12 + edge.from * 13} ${edge.from === node.lane ? 33 : 0} C${12 + edge.from * 13} 49, ${12 + edge.to * 13} 49, ${12 + edge.to * 13} 66`} fill="none" stroke="var(--accent)" strokeWidth="1.4" />)}{node.incoming && <path d={`M${12 + node.lane * 13} 0V33`} stroke="var(--accent)" strokeWidth="1.4" />}<circle cx={12 + node.lane * 13} cy="33" r="4" fill={commit.sha === graph.head ? 'var(--accent)' : 'var(--bg)'} stroke="var(--accent)" strokeWidth="2" /></svg><span className="graph-description"><span className="truncate">{commit.subject || '(no subject)'}</span><span className="muted graph-subtitle"><code>{commit.sha.slice(0, 7)}</code><span className="truncate">{commit.author_name}</span><time>{relativeDate(commit.time)}</time></span></span>{commit.sha === graph.head && <span className="head-badge" title="Current HEAD">HEAD</span>}{commit.refs.length > 0 && <span className="ref-badge" title={commit.refs.join('\n')}>{shortRef(commit.refs[0])}{commit.refs.length > 1 ? ` +${commit.refs.length - 1}` : ''}</span>}</button> })}</div>}</div>
 }
