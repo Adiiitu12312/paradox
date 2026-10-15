@@ -50,7 +50,11 @@ fn failing_original_post_commit_does_not_prevent_retention_after_successful_git_
     git(root, &["add", "a.ts"]);
     git(root, &["commit", "-qm", "base"]);
     let hook = root.join(".git/hooks/post-commit");
-    fs::write(&hook, "#!/bin/sh\nprintf 'called\\n' >> user-post-ran\nexit 37\n").unwrap();
+    fs::write(
+        &hook,
+        "#!/bin/sh\nprintf 'called\\n' >> user-post-ran\nexit 37\n",
+    )
+    .unwrap();
     paradox_core::setup::executable(&hook).unwrap();
     ok(command(root, env!("CARGO_BIN_EXE_paradox"))
         .arg("init")
@@ -81,7 +85,11 @@ fn failing_original_post_commit_does_not_prevent_retention_after_successful_git_
     let store = open(root);
     let retained = store.loops("a.ts").unwrap();
     assert_eq!(retained.len(), 3);
-    assert!(retained.iter().any(|entry| entry.id == pinned && entry.pinned));
+    assert!(
+        retained
+            .iter()
+            .any(|entry| entry.id == pinned && entry.pinned)
+    );
     let mut recent_messages: Vec<_> = retained
         .iter()
         .filter(|entry| !entry.pinned)

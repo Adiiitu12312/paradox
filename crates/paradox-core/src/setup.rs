@@ -59,8 +59,12 @@ pub fn hook_script(exe: &Path, previous: Option<&Path>, event: Option<&str>) -> 
     if let Some(previous) = previous {
         script.push_str(&format!(
             "{} \"$@\"{}\n",
-            shell_quote(previous.to_str().context("hook path must be UTF-8")?)
-            , if event == Some("post-commit") { "" } else { " || exit $?" }
+            shell_quote(previous.to_str().context("hook path must be UTF-8")?),
+            if event == Some("post-commit") {
+                ""
+            } else {
+                " || exit $?"
+            }
         ));
     }
     if let Some(event) = event {
