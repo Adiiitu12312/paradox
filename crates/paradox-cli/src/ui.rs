@@ -62,6 +62,9 @@ fn open_browser(url: &str) -> std::io::Result<()> {
     let mut command = Command::new("open");
     #[cfg(all(unix, not(target_os = "macos")))]
     let mut command = Command::new("xdg-open");
-    command.arg(url).spawn()?;
+    let mut child = command.arg(url).spawn()?;
+    std::thread::spawn(move || {
+        let _ = child.wait();
+    });
     Ok(())
 }

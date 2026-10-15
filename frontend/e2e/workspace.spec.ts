@@ -50,7 +50,7 @@ test('stages one hunk, commits only the index, strips markers, and leaves workin
   await page.goto(url)
   await expect(page).toHaveURL(/\/$/)
   await expect(page.getByText('Local session', { exact: true })).toBeVisible()
-  await page.getByRole('button', { name: 'M sample.ts', exact: true }).click()
+  await page.locator('.file-name').filter({ hasText: 'sample.ts' }).click()
   await expect(page.locator('.monaco-diff-editor')).toBeVisible()
   await page.getByText('Select hunks or lines').click()
   await expect(page.getByRole('button', { name: 'Stage hunk', exact: true })).toHaveCount(2)
