@@ -8,7 +8,9 @@ use std::io::{self, IsTerminal, Write};
 use std::path::PathBuf;
 
 #[derive(Parser)]
-struct FileArgs { file: PathBuf }
+struct FileArgs {
+    file: PathBuf,
+}
 
 #[derive(Parser)]
 #[command(about = "Compare working, HEAD or per-file loop versions")]
@@ -30,7 +32,9 @@ struct RewindArgs {
 }
 
 #[derive(Parser)]
-struct PinArgs { id: i64 }
+struct PinArgs {
+    id: i64,
+}
 
 #[derive(Parser)]
 struct TrackArgs {
@@ -43,26 +47,51 @@ fn open(args: &[OsString], index: usize) -> Result<LoopStore> {
 }
 
 fn printable(text: &str) -> String {
-    text.chars().flat_map(|c| if c.is_control() { c.escape_default().collect::<Vec<_>>() } else { vec![c] }).collect()
+    text.chars()
+        .flat_map(|c| {
+            if c.is_control() {
+                c.escape_default().collect::<Vec<_>>()
+            } else {
+                vec![c]
+            }
+        })
+        .collect()
 }
 
 fn fallback(store: &mut LoopStore) {
-    if let Err(error) = store.capture(&[]) { store.log(&format!("fallback scan: {error:#}")); }
+    if let Err(error) = store.capture(&[]) {
+        store.log(&format!("fallback scan: {error:#}"));
+    }
 }
 
 fn print_diff(diff: &str) {
-    let color = io::stdout().is_terminal() && std::env::var_os("NO_COLOR").is_none() && std::env::var("TERM").as_deref() != Ok("dumb");
+    let color = io::stdout().is_terminal()
+        && std::env::var_os("NO_COLOR").is_none()
+        && std::env::var("TERM").as_deref() != Ok("dumb");
     for line in diff.split_inclusive('\n') {
-        let code = if line.starts_with('+') && !line.starts_with("+++") { "32" }
-            else if line.starts_with('-') && !line.starts_with("---") { "31" }
-            else if line.starts_with("@@") { "36" } else { "" };
-        if color && !code.is_empty() { print!("\x1b[{code}m{line}\x1b[0m"); }
-        else { print!("{line}"); }
+        let code = if line.starts_with('+') && !line.starts_with("+++") {
+            "32"
+        } else if line.starts_with('-') && !line.starts_with("---") {
+            "31"
+        } else if line.starts_with("@@") {
+            "36"
+        } else {
+            ""
+        };
+        if color && !code.is_empty() {
+            print!("\x1b[{code}m{line}\x1b[0m");
+        } else {
+            print!("{line}");
+        }
     }
 }
 
 pub fn available(command: &OsStr) -> bool {
-    ["loops", "compare", "rewind", "pin", "unpin", "track", "untrack"].iter().any(|name| command == *name)
+    [
+        "loops", "compare", "rewind", "pin", "unpin", "track", "untrack",
+    ]
+    .iter()
+    .any(|name| command == *name)
 }
 
 pub fn run(args: &[OsString], index: usize) -> i32 {
@@ -89,13 +118,32 @@ fn execute(args: &[OsString], index: usize) -> Result<()> {
             fallback(&mut store);
             println!("Loops for {path:?} (newest first)");
             for record in store.loops(&path)? {
-                println!("{}  {}  {}  {}{}{}  {}  head={}", record.id, absolute_time(record.ts), relative_time(record.ts), record.kind,
-                    if record.pinned { " pinned" } else { "" }, if record.deleted { " absent" } else { "" }, printable(&record.message),
-                    if record.head_sha.is_empty() { "unborn" } else { &record.head_sha[..record.head_sha.len().min(12)] });
+                println!(
+                    "{}  {}  {}  {}{}{}  {}  head={}",
+                    record.id,
+                    absolute_time(record.ts),
+                    relative_time(record.ts),
+                    record.kind,
+                    if record.pinned { " pinned" } else { "" },
+                    if record.deleted { " absent" } else { "" },
+                    printable(&record.message),
+                    if record.head_sha.is_empty() {
+                        "unborn"
+                    } else {
+                        &record.head_sha[..record.head_sha.len().min(12)]
+                    }
+                );
             }
             let head = store.head_version(&path)?;
-            if store.repo.head.is_empty() { println!("HEAD  no commit (file absent)"); }
-            else { println!("HEAD  {}  committed baseline{}", absolute_time(head.ts), if head.deleted { " (file absent)" } else { "" }); }
+            if store.repo.head.is_empty() {
+                println!("HEAD  no commit (file absent)");
+            } else {
+                println!(
+                    "HEAD  {}  committed baseline{}",
+                    absolute_time(head.ts),
+                    if head.deleted { " (file absent)" } else { "" }
+                );
+            }
         }
         "compare" => {
             let options = CompareArgs::try_parse_from(&args[index..])?;
@@ -107,10 +155,18 @@ fn execute(args: &[OsString], index: usize) -> Result<()> {
             let diff = match (&options.a, &options.b) {
                 (None, None) => {
                     fallback(&mut store);
-                    store.compare(&path, &store.latest_version(&path)?, &store.resolve(&path, "working")?)?
+                    store.compare(
+                        &path,
+                        &store.latest_version(&path)?,
+                        &store.resolve(&path, "working")?,
+                    )?
                 }
                 (Some(a), b) => {
-                    let diff = store.compare(&path, &store.resolve(&path, a)?, &store.resolve(&path, b.as_deref().unwrap_or("working"))?)?;
+                    let diff = store.compare(
+                        &path,
+                        &store.resolve(&path, a)?,
+                        &store.resolve(&path, b.as_deref().unwrap_or("working"))?,
+                    )?;
                     fallback(&mut store);
                     diff
                 }
@@ -125,7 +181,11 @@ fn execute(args: &[OsString], index: usize) -> Result<()> {
             // Protect the requested loop before a fallback scan may evict it.
             store.pin_loop(options.id, pinned)?;
             fallback(&mut store);
-            println!("Loop {} {}", options.id, if pinned { "pinned" } else { "unpinned" });
+            println!(
+                "Loop {} {}",
+                options.id,
+                if pinned { "pinned" } else { "unpinned" }
+            );
         }
         "track" | "untrack" => {
             let options = TrackArgs::try_parse_from(&args[index..])?;
@@ -133,7 +193,15 @@ fn execute(args: &[OsString], index: usize) -> Result<()> {
             let remove = args[index] == "untrack";
             let changed = store.track_paths(&options.paths, remove)?;
             fallback(&mut store);
-            println!("{} {changed} explicit path(s){}", if remove { "Untracked" } else { "Tracked" }, if remove { "; Git-tracked files remain tracked" } else { "" });
+            println!(
+                "{} {changed} explicit path(s){}",
+                if remove { "Untracked" } else { "Tracked" },
+                if remove {
+                    "; Git-tracked files remain tracked"
+                } else {
+                    ""
+                }
+            );
         }
         "rewind" => {
             let options = RewindArgs::try_parse_from(&args[index..])?;
@@ -141,25 +209,53 @@ fn execute(args: &[OsString], index: usize) -> Result<()> {
                 let at = clock_time(&time)?;
                 let mut store = open(args, index)?;
                 let preview = store.preview_at(at)?;
-                println!("Dry run: {} file(s) to {}", preview.plans.len(), absolute_time(at));
-                for plan in &preview.plans { println!("  {} {:?} -> {}", if plan.version.deleted { "delete" } else { "restore" }, plan.path, plan.version.label); }
-                for (path, reason) in &preview.skipped { eprintln!("Skipped {path:?}: {}", printable(reason)); }
+                println!(
+                    "Dry run: {} file(s) to {}",
+                    preview.plans.len(),
+                    absolute_time(at)
+                );
+                for plan in &preview.plans {
+                    println!(
+                        "  {} {:?} -> {}",
+                        if plan.version.deleted {
+                            "delete"
+                        } else {
+                            "restore"
+                        },
+                        plan.path,
+                        plan.version.label
+                    );
+                }
+                for (path, reason) in &preview.skipped {
+                    eprintln!("Skipped {path:?}: {}", printable(reason));
+                }
                 // Do not hold the repository lock while waiting for the user.
                 // Targets are validated again after reopening on confirmation.
                 drop(store);
-                if preview.plans.is_empty() { return Ok(()); }
+                if preview.plans.is_empty() {
+                    return Ok(());
+                }
                 if !options.yes {
                     print!("Apply these file changes? Type yes: ");
                     io::stdout().flush()?;
                     let mut answer = String::new();
                     io::stdin().read_line(&mut answer)?;
-                    ensure!(answer.trim() == "yes", "rewind cancelled; no working files changed");
+                    ensure!(
+                        answer.trim() == "yes",
+                        "rewind cancelled; no working files changed"
+                    );
                 }
                 let mut store = open(args, index)?;
-                for (path, id) in store.apply_rewinds(&preview.plans)? { println!("Rewound {path:?}; undo uses safety loop {id}"); }
+                for (path, id) in store.apply_rewinds(&preview.plans)? {
+                    println!("Rewound {path:?}; undo uses safety loop {id}");
+                }
             } else {
-                let file = options.file.context("provide a file and version, or --at HH:MM")?;
-                let version = options.version.context("provide a loop ID, relative time, HEAD or undo")?;
+                let file = options
+                    .file
+                    .context("provide a file and version, or --at HH:MM")?;
+                let version = options
+                    .version
+                    .context("provide a loop ID, relative time, HEAD or undo")?;
                 let mut store = open(args, index)?;
                 let id = store.rewind_file(&file, &version)?;
                 println!("Rewound {file:?}; undo uses safety loop {id}");

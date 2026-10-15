@@ -105,6 +105,60 @@ preserves its original operating-system arguments.
 Commit-time marker stripping and automatic editor/AI hook setup arrive in M4;
 this development build does not install them. `watch` arrives in M4.5.
 
+## History and rewind (M3, under verification)
+
+```text
+paradox loops src/file.ts
+paradox compare src/file.ts HEAD working
+paradox compare src/file.ts 10m working
+paradox compare src/file.ts 12 18
+paradox rewind src/file.ts 12
+paradox rewind src/file.ts undo
+paradox rewind src/file.ts HEAD
+paradox rewind --at 14:30
+paradox rewind --at 14:30 --yes
+paradox pin 12
+paradox unpin 12
+paradox track new/file.ts
+paradox untrack new/file.ts
+```
+
+IDs and message substrings select versions of the named file in the current
+worktree. Ambiguous messages fail with a request to use an ID. Relative times
+accept seconds, minutes, hours or days (`30s`, `10m`, `2h`, `1d`), using the newest
+known loop or committed version at/before that time. The list includes UTC
+timestamps, relative ages, kinds, pins, provenance and the HEAD baseline.
+`compare` uses a unified diff, with colors on a terminal; `NO_COLOR` disables them.
+A comparison without selectors first captures pending edits and can therefore
+be empty. Use explicit versions to inspect earlier changes.
+
+Each rewind protects its target and records a durable `before rewind` safety
+loop before replacing only the named file. `undo` restores that safety state;
+it can also undo recreating a deleted file. Binary, oversized, secret-denylisted
+or linked working files cannot be safely backed up and are refused. Existing
+file permissions are retained; saved modes are used when recreating files on Unix.
+
+Batch time means the most recent local occurrence of `HH:MM`; ambiguous or
+nonexistent daylight-saving times are refused. The preview names every planned
+restore/deletion and reports skipped unsupported or unavailable paths. Confirmation
+requires typing `yes`, or `--yes`. The prompt holds no repository lock. All target
+versions and safety loops are protected before any working file changes. A batch
+that encounters an I/O error can finish partially; each completed file is undoable.
+
+`track` adds eligible explicit paths without staging them. Directory enumeration
+uses Git's ignore rules and happens only when requested. Registrations are stored
+per worktree in `.paradox/tracked.toml`; unrelated new directories remain ignored.
+`untrack` removes only explicit registration: files in `git ls-files` remain tracked.
+Existing loops remain available after untracking. Git-reported renames carry loop
+history to the new path; otherwise it stays under the old path. Branch changes do
+not move loops; each loop retains its recorded commit SHA.
+
+M3 migrates the M2 index transactionally while preserving IDs and blobs. Temporary
+rewind pins recover after a crash without clearing permanent user pins. A short
+per-worktree writing marker supports recovery and suppresses Paradox's own writes;
+it is consumed so later external edits are captured normally. These commands
+never install hooks or start a watcher.
+
 ## Verification
 
 All tests that execute Paradox create OS temporary repositories **outside** this

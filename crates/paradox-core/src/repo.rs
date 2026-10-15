@@ -113,7 +113,15 @@ impl Repo {
             .ok()?
             .as_nanos();
         let extra = match std::fs::symlink_metadata(self.store.join("tracked.toml")) {
-            Ok(meta) if meta.is_file() => format!("{}:{}", meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos(), meta.len()),
+            Ok(meta) if meta.is_file() => format!(
+                "{}:{}",
+                meta.modified()
+                    .ok()?
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .ok()?
+                    .as_nanos(),
+                meta.len()
+            ),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => "none".into(),
             _ => return None,
         };
@@ -161,7 +169,12 @@ impl Repo {
             .filter(|p| !p.is_empty())
             .filter_map(|p| std::str::from_utf8(p).ok().map(str::to_owned))
             .collect();
-        tracked.extend(self.extra_tracked()?.into_iter().filter(|path| selected.is_empty() || selected.iter().any(|input| path == input || path.starts_with(&format!("{input}/")))));
+        tracked.extend(self.extra_tracked()?.into_iter().filter(|path| {
+            selected.is_empty()
+                || selected
+                    .iter()
+                    .any(|input| path == input || path.starts_with(&format!("{input}/")))
+        }));
         Ok(tracked)
     }
 
@@ -171,16 +184,32 @@ impl Repo {
 
     /// Index/HEAD comparison only; never a working-tree stat scan on saves.
     pub fn staged_renames(&self) -> Result<Vec<(String, String)>> {
-        let output = self.git(&["--no-lazy-fetch", "diff", "--cached", "--name-status", "-z", "--find-renames", "--no-ext-diff", "--no-textconv", "--no-color", "--"])?;
+        let output = self.git(&[
+            "--no-lazy-fetch",
+            "diff",
+            "--cached",
+            "--name-status",
+            "-z",
+            "--find-renames",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "--",
+        ])?;
         let mut entries = output.stdout.split(|byte| *byte == 0);
         let mut renames = Vec::new();
         while let Some(status) = entries.next() {
-            if status.is_empty() { continue; }
+            if status.is_empty() {
+                continue;
+            }
             let from = entries.next().context("invalid Git name-status record")?;
             if matches!(status.first(), Some(b'R' | b'C')) {
                 let to = entries.next().context("invalid Git rename record")?;
                 if status.first() == Some(&b'R') {
-                    renames.push((std::str::from_utf8(from)?.into(), std::str::from_utf8(to)?.into()));
+                    renames.push((
+                        std::str::from_utf8(from)?.into(),
+                        std::str::from_utf8(to)?.into(),
+                    ));
                 }
             }
         }
@@ -208,8 +237,17 @@ impl Repo {
             }
             if entry.first() == Some(&b'2') {
                 if let Some(old) = entries.next()
-                    && entry.splitn(10, |byte| *byte == b' ').nth(8).is_some_and(|score| score.starts_with(b"R"))
-                    && let (Ok(old), Some(new)) = (std::str::from_utf8(old), entry.splitn(10, |byte| *byte == b' ').nth(9).and_then(|path| std::str::from_utf8(path).ok()))
+                    && entry
+                        .splitn(10, |byte| *byte == b' ')
+                        .nth(8)
+                        .is_some_and(|score| score.starts_with(b"R"))
+                    && let (Ok(old), Some(new)) = (
+                        std::str::from_utf8(old),
+                        entry
+                            .splitn(10, |byte| *byte == b' ')
+                            .nth(9)
+                            .and_then(|path| std::str::from_utf8(path).ok()),
+                    )
                 {
                     renames.push((old.into(), new.into()));
                 }

@@ -99,7 +99,9 @@ fn main() {
             capture(&args, index);
             return;
         }
-        Route::Owned { index } if commands::available(&args[index]) => Ok(commands::run(&args, index)),
+        Route::Owned { index } if commands::available(&args[index]) => {
+            Ok(commands::run(&args, index))
+        }
         Route::Owned { index } | Route::FileCommit { index, .. } => {
             eprintln!(
                 "paradox: '{}' is not available in M3; see paradox --help",

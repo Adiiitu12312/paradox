@@ -159,7 +159,9 @@ impl LoopStore {
         }
         // The exclusive repository lock proves any remaining operation leases
         // came from a terminated process. Permanent user pins are not in here.
-        if index.query_row("SELECT EXISTS(SELECT 1 FROM operation_pins)", [], |row| row.get::<_, bool>(0))? {
+        if index.query_row("SELECT EXISTS(SELECT 1 FROM operation_pins)", [], |row| {
+            row.get::<_, bool>(0)
+        })? {
             index.execute_batch("BEGIN IMMEDIATE; UPDATE loops SET pinned=0 WHERE id IN (SELECT id FROM operation_pins); DELETE FROM operation_pins; COMMIT;")?;
         }
         let mut builder = GlobSetBuilder::new();
@@ -298,11 +300,17 @@ impl LoopStore {
             eprintln!("capture profile: tracked {:?}", started.elapsed());
         }
         let all = inputs.is_empty();
-        if !all && !cached { self.refresh_staged_renames()?; }
+        if !all && !cached {
+            self.refresh_staged_renames()?;
+        }
         // Only a stat-changed file without a prior captured hash needs Git's
         // dirty set to distinguish its HEAD baseline. Warm scans avoid a second
         // full filesystem walk by Git.
-        let mut dirty = if all { self.refresh_git_changes()? } else { None };
+        let mut dirty = if all {
+            self.refresh_git_changes()?
+        } else {
+            None
+        };
         let cache_map: Option<HashMap<String, (i64, u64, String)>> = if all {
             Some(
                 self.index
@@ -432,7 +440,10 @@ impl LoopStore {
         let hash = blake3::hash(&bytes).to_hex().to_string();
         let latest = self.index.query_row("SELECT blob_hash,deleted FROM loops WHERE worktree=?1 AND path=?2 ORDER BY ts DESC,id DESC LIMIT 1",
             params![self.repo.worktree,path], |r| Ok((r.get::<_,String>(0)?, r.get::<_,bool>(1)?))).optional()?;
-        if latest.as_ref().is_some_and(|(old, deleted)| !deleted && old == &hash) {
+        if latest
+            .as_ref()
+            .is_some_and(|(old, deleted)| !deleted && old == &hash)
+        {
             self.cache_write(path, state, &hash)?;
             return Ok((false, true, false));
         }
@@ -441,13 +452,35 @@ impl LoopStore {
             _ => Vec::new(),
         };
         let (message, auto_label) = crate::message::label(Path::new(path), &bytes, &previous);
-        self.save_loop(NewLoop { path, bytes: &bytes, hash: &hash, state: Some(state), kind, message: &message, auto_label, deleted: false, pinned: false, mode: file_mode(&after) })?;
+        self.save_loop(NewLoop {
+            path,
+            bytes: &bytes,
+            hash: &hash,
+            state: Some(state),
+            kind,
+            message: &message,
+            auto_label,
+            deleted: false,
+            pinned: false,
+            mode: file_mode(&after),
+        })?;
         Ok((true, true, false))
     }
 
     /// The only blob/reference insertion path, shared by saves and safety loops.
     pub(crate) fn save_loop(&mut self, input: NewLoop<'_>) -> Result<i64> {
-        let NewLoop { path, bytes, hash, state, kind, message, auto_label, deleted, pinned, mode } = input;
+        let NewLoop {
+            path,
+            bytes,
+            hash,
+            state,
+            kind,
+            message,
+            auto_label,
+            deleted,
+            pinned,
+            mode,
+        } = input;
         let stored_size = i64::try_from(self.blobs.put(hash, bytes)?)?;
         crate::fault("after_blob");
         self.index.execute_batch("BEGIN IMMEDIATE")?;
@@ -466,16 +499,27 @@ impl LoopStore {
                 params![self.repo.worktree,path,hash,now()?,message,auto_label,self.repo.head,pinned,i64::try_from(bytes.len())?,kind,deleted,mode])?;
             let id = self.index.last_insert_rowid();
             if pinned {
-                self.index.execute("INSERT INTO operation_pins VALUES(?1)", [id])?;
+                self.index
+                    .execute("INSERT INTO operation_pins VALUES(?1)", [id])?;
             }
             crate::fault("after_index_insert");
             if let Some(state) = state {
                 self.cache_write(path, state, hash)?;
             } else {
-                self.index.execute("DELETE FROM stat_cache WHERE worktree=?1 AND path=?2", params![self.repo.worktree, path])?;
+                self.index.execute(
+                    "DELETE FROM stat_cache WHERE worktree=?1 AND path=?2",
+                    params![self.repo.worktree, path],
+                )?;
             }
             let deleted = self.evict()?;
-            ensure!(self.index.query_row("SELECT EXISTS(SELECT 1 FROM loops WHERE id=?1)", [id], |r| r.get::<_,bool>(0))?, "store cap cannot retain this loop; pinned loops were preserved");
+            ensure!(
+                self.index.query_row(
+                    "SELECT EXISTS(SELECT 1 FROM loops WHERE id=?1)",
+                    [id],
+                    |r| r.get::<_, bool>(0)
+                )?,
+                "store cap cannot retain this loop; pinned loops were preserved"
+            );
             Ok((id, deleted))
         })();
         match result {
@@ -518,17 +562,26 @@ impl LoopStore {
         let page_size: u64 = self
             .index
             .query_row("PRAGMA page_size", [], |r| sql_size(r, 0))?;
-        let other: u64 = ["index.sqlite3-shm", "lock", "log", "config.toml", "tracked.toml"]
-            .iter()
-            .filter_map(|p| fs::metadata(self.repo.store.join(p)).ok())
-            .map(|m| m.len())
-            .sum();
+        let other: u64 = [
+            "index.sqlite3-shm",
+            "lock",
+            "log",
+            "config.toml",
+            "tracked.toml",
+        ]
+        .iter()
+        .filter_map(|p| fs::metadata(self.repo.store.join(p)).ok())
+        .map(|m| m.len())
+        .sum();
         let mut markers = 0;
         for entry in fs::read_dir(&self.repo.store)? {
             let entry = entry?;
             let name = entry.file_name();
             let name = name.to_string_lossy();
-            if name.starts_with("writing-") && name.ends_with(".toml") && entry.file_type()?.is_file() {
+            if name.starts_with("writing-")
+                && name.ends_with(".toml")
+                && entry.file_type()?.is_file()
+            {
                 markers += entry.metadata()?.len().max(4096);
             }
         }
@@ -632,7 +685,9 @@ impl LoopStore {
         }
         for entry in fs::read_dir(&self.repo.store)? {
             let entry = entry?;
-            if entry.file_type()?.is_file() && entry.file_name().to_string_lossy().starts_with(".pending-") {
+            if entry.file_type()?.is_file()
+                && entry.file_name().to_string_lossy().starts_with(".pending-")
+            {
                 fs::remove_file(entry.path())?;
             }
         }
