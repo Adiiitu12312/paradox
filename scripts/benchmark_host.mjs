@@ -54,20 +54,20 @@ try {
   for (const args of [['--version'], ['status', '--porcelain=v2', '-z']]) {
     const exceeded = [];
     for (let round = 0; round < 3; round++) {
-    for (let n = 0; n < 16; n++) {
-      for (const executable of ['git', binary]) assert.equal(run(executable, args).status, 0);
-    }
-    const differences = [], direct = [], wrapped = [];
-    for (let n = 0; n < 201; n++) {
-      const results = (n + round) % 2 ? [run(binary, args), run('git', args)].reverse() : [run('git', args), run(binary, args)];
-      assert.equal(results[0].status, 0);
-      assert.equal(results[1].status, 0);
-      direct.push(results[0].ns); wrapped.push(results[1].ns);
-      differences.push(results[1].ns - results[0].ns);
-    }
-    const overhead = Math.max(0, median(differences)) / 1e6;
-    console.log(JSON.stringify({ args, round: round + 1, git_ms: median(direct) / 1e6, paradox_ms: median(wrapped) / 1e6, paired_overhead_ms: overhead, pairs: 201, ceiling_ms: ceiling }));
-    exceeded.push(overhead > ceiling);
+      for (let n = 0; n < 16; n++) {
+        for (const executable of ['git', binary]) assert.equal(run(executable, args).status, 0);
+      }
+      const differences = [], direct = [], wrapped = [];
+      for (let n = 0; n < 201; n++) {
+        const results = (n + round) % 2 ? [run(binary, args), run('git', args)].reverse() : [run('git', args), run(binary, args)];
+        assert.equal(results[0].status, 0);
+        assert.equal(results[1].status, 0);
+        direct.push(results[0].ns); wrapped.push(results[1].ns);
+        differences.push(results[1].ns - results[0].ns);
+      }
+      const overhead = Math.max(0, median(differences)) / 1e6;
+      console.log(JSON.stringify({ args, round: round + 1, git_ms: median(direct) / 1e6, paradox_ms: median(wrapped) / 1e6, paired_overhead_ms: overhead, pairs: 201, ceiling_ms: ceiling }));
+      exceeded.push(overhead > ceiling);
     }
     const failures = exceeded.filter(Boolean).length;
     console.log(JSON.stringify({ args, exceeded, failures, required_failures: 2 }));

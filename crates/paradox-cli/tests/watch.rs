@@ -226,6 +226,7 @@ fn native_saves_rename_sed_debounce_and_exclusions() {
     fs::write(root.join(".paradox/ignored-probe"), "metadata\n").unwrap();
     std::thread::sleep(Duration::from_secs(3));
     assert_eq!(count(root), 4);
+    assert!(px(root, &["watch", "--status"]).contains("loops_created=4"));
     assert!(
         store(root)
             .loops("src/0.ts")
@@ -558,12 +559,19 @@ fn background_session_detaches_and_stops() {
     let _cleanup = Cleanup(root);
     let child = command(root, env!("CARGO_BIN_EXE_paradox"))
         .args(["watch", "--background"])
-        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped())
-        .spawn().unwrap();
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
     let (sender, receiver) = mpsc::channel();
-    std::thread::spawn(move || { let _ = sender.send(child.wait_with_output()); });
-    let line = ok(receiver.recv_timeout(Duration::from_secs(20))
-        .expect("background launcher retained output pipes after detaching").unwrap());
+    std::thread::spawn(move || {
+        let _ = sender.send(child.wait_with_output());
+    });
+    let line = ok(receiver
+        .recv_timeout(Duration::from_secs(20))
+        .expect("background launcher retained output pipes after detaching")
+        .unwrap());
     assert!(line.contains("Paradox watching "), "{line}");
     assert!(line.contains("stops after 30 min idle"), "{line}");
     let status = px(root, &["watch", "--status"]);
@@ -665,7 +673,8 @@ fn footprint(pid: u32) -> (u64, f64) {
 #[test]
 #[ignore = "release-only ten-minute idle footprint gate on 50,000 tracked files"]
 fn fifty_thousand_tracked_files_ten_minute_idle_footprint() {
-    let temp = fixture(50_000);
+    // The fixture also tracks .gitignore: 49,999 sources + 1 = 50,000.
+    let temp = fixture(49_999);
     let root = temp.path();
     fs::write(
         root.join(".paradox/config.toml"),
