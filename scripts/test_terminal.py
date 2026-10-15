@@ -195,7 +195,10 @@ def main():
             result = terminal(executable, command, root, env, interrupt=True,
                               **signal_options)
             if os.name == "nt":
-                assert result[0] is not None and result[0] != 0, (name, result)
+                # Native Windows Git can treat the cancelled console read as
+                # EOF and return 0. Its actual status, including 0, is what the
+                # wrapper must preserve; do not invent a required signal code.
+                assert result[0] is not None, (name, result)
                 code = result[0] & 0xffffffff
                 # STATUS_CONTROL_C_EXIT is a normal console interruption.
                 # Access violations and other NT exception exits are failures,

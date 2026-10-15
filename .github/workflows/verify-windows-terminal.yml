@@ -1,0 +1,26 @@
+name: Verify Windows terminal with existing build
+on:
+  workflow_dispatch:
+    inputs:
+      build_run_id:
+        description: Run containing the Windows binary to verify
+        required: true
+        default: '38708625737'
+permissions:
+  contents: read
+  actions: read
+jobs:
+  terminal:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download existing Windows build
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          BUILD_RUN_ID: ${{ inputs.build_run_id }}
+        run: gh run download $env:BUILD_RUN_ID --name paradox-Windows-X64 --dir .terminal-bin
+      - name: Install terminal helper on hosted runner
+        run: python -m pip install --only-binary=:all: "pywinpty>=3,<4"
+      - name: Verify terminal colors, pager, editor and Ctrl+C
+        run: python scripts/test_terminal.py .terminal-bin/paradox.exe
