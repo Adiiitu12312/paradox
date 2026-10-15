@@ -19,7 +19,8 @@ jobs:
           - os: windows-latest
             target: x86_64-pc-windows-msvc
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
+    # Include release harness linking and cache cleanup on slower Windows hosts.
+    timeout-minutes: 35
     env:
       CARGO_BUILD_TARGET: ${{ matrix.target }}
     steps:
