@@ -9,6 +9,7 @@ pub mod repo;
 pub mod setup;
 pub mod store;
 pub mod tracking;
+pub mod watch;
 
 pub(crate) fn fault(point: &str) {
     #[cfg(feature = "fault-injection")]

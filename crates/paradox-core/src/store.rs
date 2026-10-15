@@ -259,6 +259,15 @@ impl LoopStore {
     /// Explicit files are checked against Git using literal pathspecs; no tree scan.
     /// An empty selection scans only Git's tracked set, never new directories.
     pub fn capture(&mut self, inputs: &[std::path::PathBuf]) -> Result<CaptureReport> {
+        self.capture_inner(inputs, None)
+    }
+
+    /// Watch uses the ordinary locked capture path, including dedup and skips.
+    pub fn capture_watch(&mut self, inputs: &[std::path::PathBuf], bulk: bool) -> Result<CaptureReport> {
+        self.capture_inner(inputs, bulk.then_some("bulk change"))
+    }
+
+    fn capture_inner(&mut self, inputs: &[std::path::PathBuf], message: Option<&str>) -> Result<CaptureReport> {
         let started = std::time::Instant::now();
         let profile = std::env::var_os("PARADOX_PROFILE_CAPTURE").is_some();
         self.checked_dirs.clear();
@@ -344,7 +353,7 @@ impl LoopStore {
             };
             match self.capture_one(
                 &path,
-                if all { "scan" } else { "save" },
+                (if all || message.is_some() { "scan" } else { "save" }, message),
                 all,
                 &mut dirty,
                 cache,
@@ -392,7 +401,7 @@ impl LoopStore {
     fn capture_one(
         &mut self,
         path: &str,
-        kind: &str,
+        kind: (&str, Option<&str>),
         all: bool,
         dirty: &mut Option<HashSet<String>>,
         cache: Option<(i64, u64, String)>,
@@ -451,13 +460,16 @@ impl LoopStore {
             Some((old, false)) => self.blobs.get(&old)?,
             _ => Vec::new(),
         };
-        let (message, auto_label) = crate::message::label(Path::new(path), &bytes, &previous);
+        let (message, auto_label) = match kind.1 {
+            Some(message) => (message.to_string(), true),
+            None => crate::message::label(Path::new(path), &bytes, &previous),
+        };
         self.save_loop(NewLoop {
             path,
             bytes: &bytes,
             hash: &hash,
             state: Some(state),
-            kind,
+            kind: kind.0,
             message: &message,
             auto_label,
             deleted: false,
@@ -579,7 +591,8 @@ impl LoopStore {
             let name = entry.file_name();
             let name = name.to_string_lossy();
             if ((name.starts_with("writing-") && name.ends_with(".toml"))
-                || (name.starts_with("setup-") && name.ends_with(".json")))
+                || (name.starts_with("setup-") && name.ends_with(".json"))
+                || matches!(name.as_ref(), "watch.json" | "watch.stop"))
                 && entry.file_type()?.is_file()
             {
                 markers += entry.metadata()?.len().max(4096);

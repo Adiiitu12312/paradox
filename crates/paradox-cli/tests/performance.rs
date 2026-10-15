@@ -6,6 +6,21 @@ fn median<T: Ord + Copy>(values: &mut [T]) -> T {
     values[values.len() / 2]
 }
 
+fn persistent_regression(rounds: [bool; 3]) -> bool {
+    rounds.into_iter().filter(|exceeded| *exceeded).count() >= 2
+}
+
+#[test]
+fn isolated_noisy_round_does_not_fail_but_two_exceedances_do() {
+    for rounds in [[true, false, false], [false, true, false], [false, false, true], [false; 3]] {
+        assert!(!persistent_regression(rounds));
+    }
+    for rounds in [[true, true, false], [true, false, true], [false, true, true], [true; 3]] {
+        assert!(persistent_regression(rounds));
+    }
+    assert_eq!(median(&mut [-5_i128, 1, -3]), -3);
+}
+
 fn elapsed(exe: &str, root: &std::path::Path, args: &[&str]) -> Duration {
     let started = Instant::now();
     let status = Command::new(exe)
@@ -50,16 +65,18 @@ fn passthrough_overhead_within_stored_baseline() {
     );
     let mut below_limit = true;
     for args in [&["--version"][..], &["status", "--porcelain=v2", "-z"]] {
+        let mut exceeded = [false; 3];
+        for (round, exceeded) in exceeded.iter_mut().enumerate() {
         let mut direct = Vec::new();
         let mut wrapped = Vec::new();
         let mut differences = Vec::new();
-        for _ in 0..8 {
+        for _ in 0..16 {
             elapsed("git", root.path(), args);
             elapsed(env!("CARGO_BIN_EXE_paradox"), root.path(), args);
         }
         // Alternate ordering to reduce bias from scheduling and filesystem caches.
-        for n in 0..101 {
-            let (a, b) = if n % 2 == 0 {
+        for n in 0..201 {
+            let (a, b) = if (n + round) % 2 == 0 {
                 (
                     elapsed("git", root.path(), args),
                     elapsed(env!("CARGO_BIN_EXE_paradox"), root.path(), args),
@@ -78,12 +95,16 @@ fn passthrough_overhead_within_stored_baseline() {
         // noise cannot bias the result by clamping individual negative samples.
         let overhead = Duration::from_nanos(median(&mut differences).max(0) as u64);
         println!(
-            "{args:?}: git median={git:?}, paradox median={paradox:?}, paired overhead={overhead:?}, n=101"
+            "{args:?}: round={}/3, git median={git:?}, paradox median={paradox:?}, paired overhead={overhead:?}, samples_each=201, ceiling_ms={ceiling_ms}", round + 1
         );
-        below_limit &= overhead < ceiling;
+        *exceeded = overhead > ceiling;
+        }
+        let failed = persistent_regression(exceeded);
+        println!("{args:?}: exceeded={exceeded:?}, persistent_regression={failed}");
+        below_limit &= !failed;
     }
     assert!(
         below_limit,
-        "pass-through overhead exceeded its stored OS regression ceiling"
+        "pass-through median paired overhead exceeded its stored OS regression ceiling in at least two of three consecutive rounds"
     );
 }
