@@ -21,6 +21,7 @@ pub struct Status {
     pub started_ms: i64,
     pub loops_created: u64,
     pub tracked_files: usize,
+    pub idle_minutes: u64,
 }
 
 enum Message {
@@ -364,6 +365,7 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
         started_ms: now()?,
         loops_created: 0,
         tracked_files: coverage.files.len(),
+        idle_minutes: config.watch_idle_minutes,
     };
     // Reserve the stop mailbox while starting, so stopping never needs new
     // quota allocation even if subsequent loops fill the store.
@@ -522,13 +524,16 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
                                     clock.duration_since(*when) <= Duration::from_secs(2)
                                 });
                                 for name in coverage.files.difference(&previous) {
-                                    pending.entry(name.clone())
+                                    pending
+                                        .entry(name.clone())
                                         .and_modify(|times| times.1 = clock)
                                         .or_insert((clock, clock));
                                     recent.insert(name.clone(), clock);
                                     last_change = clock;
                                 }
-                                if recent.len() > 50 { bulk = true; }
+                                if recent.len() > 50 {
+                                    bulk = true;
+                                }
                             }
                             Err(error) => {
                                 coverage.files = previous;

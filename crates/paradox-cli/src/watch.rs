@@ -122,8 +122,13 @@ pub fn run(args: &[OsString], index: usize) -> Result<i32> {
             Ok(())
         })?;
         let state = paradox_core::watch::status(&repo)?.context("watch stopped during startup")?;
+        let idle_notice = if state.idle_minutes == 0 {
+            "idle exit disabled".to_string()
+        } else {
+            format!("stops after {} min idle", state.idle_minutes)
+        };
         println!(
-            "Paradox watching {} tracked files in background; pid={}; use paradox watch --stop",
+            "Paradox watching {} tracked files; {idle_notice}; background pid={}; use paradox watch --stop",
             state.tracked_files, state.pid
         );
         return Ok(0);
