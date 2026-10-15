@@ -1,4 +1,7 @@
 # Measured medians from hosted run 38684836350, source 0689bfa; 50,000 tracked files.
+# Windows reference image: windows-2025-vs2026 20261007.264.1; see M2 report for image drift.
+# Final run 38687480030 (4c390bc) passed all stored ceilings without raising baselines.
+# Final save/scan ms: Linux 4.778304/135.16357; macOS 15.75975/233.2485; Windows 69.9318/507.7238.
 # Windows budgets accepted October 15, 2026: NTFS metadata, Defender and fsync costs.
 # Atomic blob writes, fsync, SQLite synchronous=FULL and locking remain mandatory.
 # Regression ceiling: min(OS limit, observed baseline * 1.5 + 1 ms), as for pass-through.

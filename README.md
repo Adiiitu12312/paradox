@@ -3,10 +3,10 @@
 A Rust Git wrapper that will add local per-file loops and a browser Git UI.
 Git remains the source of truth; every Git operation uses the installed Git binary.
 
-**Development status: M1 accepted; M2 loop storage and capture are in progress.**
+**Development status: M1 and M2 complete; M3 is next.**
 See the [M1 verification report](docs/milestones/M1.md) for measured results.
-The [M2 progress report](docs/milestones/M2.md) records capture tests and timing gates.
-This build implements the dispatcher and explicit loop capture. M2 is awaiting
+The [M2 verification report](docs/milestones/M2.md) records capture tests and timing gates.
+This build implements the dispatcher and explicit loop capture. M2 passed
 all-platform performance acceptance. Automatic capture, auto-staging commits and
 the UI arrive later. Do not alias `git` to this development build.
 
