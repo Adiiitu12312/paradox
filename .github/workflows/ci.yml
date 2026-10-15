@@ -33,6 +33,7 @@ jobs:
         if: always()
       - run: cargo test --workspace --locked --features paradox-cli/fault-injection
       - run: cargo build --release --locked -p paradox-cli
+        id: release
       - name: Install Windows terminal test helper on hosted runner
         if: runner.os == 'Windows'
         run: |
@@ -52,7 +53,9 @@ jobs:
           if-no-files-found: error
           retention-days: 7
       - run: cargo test --release --test performance --locked -- --ignored --nocapture
+        if: ${{ !cancelled() && steps.release.outcome == 'success' }}
       - run: cargo test --release --test capture_performance --locked -- --ignored --nocapture
+        if: ${{ !cancelled() && steps.release.outcome == 'success' }}
         env:
           PARADOX_PROFILE_CAPTURE: '1'
   audit:

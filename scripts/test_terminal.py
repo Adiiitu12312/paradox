@@ -2,6 +2,7 @@
 
 import argparse
 import errno
+import json
 import os
 from pathlib import Path
 import select
@@ -164,13 +165,26 @@ def main():
             + shlex.quote(signal_child.as_posix())
         )
         command = ["-c", "alias.signal-test=!" + child_command, "signal-test"]
-        direct = terminal(git, command, root, env, interrupt=True)
-        wrapped = terminal(binary, command, root, env, interrupt=True)
-        # Git for Windows can return zero when its shell alias is interrupted.
-        # Match Git's actual status; the terminal helper also proves termination
-        # before the 30-second sleep could finish on its own.
-        assert direct[0] == wrapped[0], (direct, wrapped)
-        print(f"PASS: Ctrl+C exits Git and Paradox with the same status ({wrapped[0]})")
+        results = []
+        for name, executable in [("direct", git), ("wrapped", binary)]:
+            trace = root / f"signal-{name}.json"
+            signal_env = {**env, "GIT_TRACE2_EVENT": trace.as_posix()}
+            result = terminal(executable, command, root, signal_env, interrupt=True)
+            if os.name == "nt":
+                # Windows shell-alias interrupt statuses vary between runs.
+                # Compare each result with its own Git child's exit instead of
+                # assuming two executions will choose the same status.
+                # Exit events: https://git-scm.com/docs/api-trace2
+                events = [json.loads(line) for line in trace.read_text().splitlines()]
+                sid = next(event["sid"] for event in events if event["event"] == "start")
+                codes = [event["code"] for event in events
+                         if event["sid"] == sid and event["event"] in ("exit", "atexit")]
+                assert codes, (name, result, events)
+                assert result[0] & 0xffffffff == codes[-1] & 0xffffffff, (name, result, codes)
+            results.append(result)
+        if os.name != "nt":
+            assert results[0][0] == results[1][0], results
+        print(f"PASS: prompt Ctrl+C exit and Git status forwarding ({results[0][0]}, {results[1][0]})")
 
 
 if __name__ == "__main__":
