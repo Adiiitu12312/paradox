@@ -129,7 +129,12 @@ pub fn mandatory_rebase_hooks(repo: &Repo, executable: &Path) -> Result<tempfile
     build_mandatory_hooks(repo, executable, false, true)
 }
 
-fn build_mandatory_hooks(repo: &Repo, executable: &Path, no_verify: bool, rebase: bool) -> Result<tempfile::TempDir> {
+fn build_mandatory_hooks(
+    repo: &Repo,
+    executable: &Path,
+    no_verify: bool,
+    rebase: bool,
+) -> Result<tempfile::TempDir> {
     let temporary = tempfile::Builder::new()
         .prefix("paradox-commit-hooks-")
         .tempdir()?;
@@ -173,10 +178,17 @@ fn build_mandatory_hooks(repo: &Repo, executable: &Path, no_verify: bool, rebase
             "pre-commit"
         };
         let script = if rebase && event == "prepare-commit-msg" {
-            let strip = format!("{} loop --hook pre-commit", crate::setup::shell_quote(executable.to_str().context("binary path must be UTF-8")?));
+            let strip = format!(
+                "{} loop --hook pre-commit",
+                crate::setup::shell_quote(
+                    executable.to_str().context("binary path must be UTF-8")?
+                )
+            );
             let original = crate::setup::hook_script(executable, previous, None)?;
             let reject = "echo 'paradox: rebase prepare hook changed the staged tree; stopped before committing. The hook may have changed the index; inspect git diff --cached and resolve in the terminal.' >&2; exit 1";
-            format!("#!/bin/sh\nparadox_tree=$(git write-tree) || exit $?\n{strip} || exit $?\n[ \"$paradox_tree\" = \"$(git write-tree)\" ] || {{ {reject}; }}\n{original}\n[ \"$paradox_tree\" = \"$(git write-tree)\" ] || {{ {reject}; }}\nexec {strip}\n")
+            format!(
+                "#!/bin/sh\nparadox_tree=$(git write-tree) || exit $?\n{strip} || exit $?\n[ \"$paradox_tree\" = \"$(git write-tree)\" ] || {{ {reject}; }}\n{original}\n[ \"$paradox_tree\" = \"$(git write-tree)\" ] || {{ {reject}; }}\nexec {strip}\n"
+            )
         } else {
             crate::setup::hook_script(executable, previous, Some(mandatory_event))?
         };
@@ -189,32 +201,64 @@ fn build_mandatory_hooks(repo: &Repo, executable: &Path, no_verify: bool, rebase
 
 /// Read staged header lines without changing the index, objects, or worktree.
 pub fn staged_marker_paths(repo: &Repo) -> Result<Vec<String>> {
-    let mut command = repo.command(&["diff", "--cached", "--raw", "--no-abbrev", "-z", "--no-renames", "--no-ext-diff", "--no-textconv"]);
+    let mut command = repo.command(&[
+        "diff",
+        "--cached",
+        "--raw",
+        "--no-abbrev",
+        "-z",
+        "--no-renames",
+        "--no-ext-diff",
+        "--no-textconv",
+    ]);
     command.env("GIT_OPTIONAL_LOCKS", "0");
     let output = crate::git::output_bounded(command, None, 8_388_608)?;
     ensure!(output.status.success(), "could not inspect staged markers");
     let mut records = output.stdout.split(|byte| *byte == 0);
     let mut paths = Vec::new();
     while let Some(header) = records.next() {
-        if header.is_empty() { continue; }
+        if header.is_empty() {
+            continue;
+        }
         let name = records.next().context("invalid staged Git record")?;
-        let fields: Vec<_> = std::str::from_utf8(header)?.split_ascii_whitespace().collect();
+        let fields: Vec<_> = std::str::from_utf8(header)?
+            .split_ascii_whitespace()
+            .collect();
         ensure!(fields.len() == 5, "invalid staged Git header");
-        if !matches!(fields[1], "100644" | "100755") { continue; }
-        let name = std::str::from_utf8(name).context("staged paths must be UTF-8 for marker stripping")?;
-        if Path::new(name).extension().and_then(|value| value.to_str()).is_some_and(|value| value.eq_ignore_ascii_case("json")) { continue; }
-        let mut child = repo.command(&["cat-file", "blob", fields[3]]).stdout(Stdio::piped()).spawn()?;
+        if !matches!(fields[1], "100644" | "100755") {
+            continue;
+        }
+        let name =
+            std::str::from_utf8(name).context("staged paths must be UTF-8 for marker stripping")?;
+        if Path::new(name)
+            .extension()
+            .and_then(|value| value.to_str())
+            .is_some_and(|value| value.eq_ignore_ascii_case("json"))
+        {
+            continue;
+        }
+        let mut child = repo
+            .command(&["cat-file", "blob", fields[3]])
+            .stdout(Stdio::piped())
+            .spawn()?;
         let result = (|| -> Result<Vec<u8>> {
             let mut reader = BufReader::new(child.stdout.take().context("missing blob output")?);
             let mut prefix = Vec::new();
             for line in 0..2 {
                 let start = prefix.len();
-                Read::by_ref(&mut reader).take(65_537).read_until(b'\n', &mut prefix)?;
+                Read::by_ref(&mut reader)
+                    .take(65_537)
+                    .read_until(b'\n', &mut prefix)?;
                 let value = &prefix[start..];
-                ensure!(value.len() <= 65_536, "staged header exceeds 64 KiB; inspect it before continuing rebase");
+                ensure!(
+                    value.len() <= 65_536,
+                    "staged header exceeds 64 KiB; inspect it before continuing rebase"
+                );
                 let first = value.strip_suffix(b"\n").unwrap_or(value);
                 let first = first.strip_suffix(b"\r").unwrap_or(first);
-                if line == 1 || !(first.starts_with(b"#!") || first == b"<?php") { break; }
+                if line == 1 || !(first.starts_with(b"#!") || first == b"<?php") {
+                    break;
+                }
             }
             Ok(prefix)
         })();
@@ -224,7 +268,9 @@ pub fn staged_marker_paths(repo: &Repo) -> Result<Vec<String>> {
             let _ = child.kill();
             let _ = child.wait();
         }
-        if crate::message::marker_range(Path::new(name), &result?).is_some() { paths.push(name.to_owned()); }
+        if crate::message::marker_range(Path::new(name), &result?).is_some() {
+            paths.push(name.to_owned());
+        }
     }
     Ok(paths)
 }

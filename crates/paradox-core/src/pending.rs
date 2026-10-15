@@ -159,10 +159,8 @@ pub(crate) fn finish(store: &mut LoopStore) {
             // closes. Finish that work while still owning the store lock;
             // otherwise a Windows successor can see pending-delete files and
             // fail to open the store with AccessDenied.
-            let index = std::mem::replace(
-                &mut store.index,
-                rusqlite::Connection::open_in_memory()?,
-            );
+            let index =
+                std::mem::replace(&mut store.index, rusqlite::Connection::open_in_memory()?);
             index.close().map_err(|(_, error)| error)?;
             fs2::FileExt::unlock(&store._lock)?;
             // A writer publishes before its final nonblocking lock attempt.

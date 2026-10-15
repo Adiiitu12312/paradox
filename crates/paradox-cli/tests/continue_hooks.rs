@@ -104,61 +104,73 @@ fn run(root: &Path, operation: Operation) -> anyhow::Result<serde_json::Value> {
 
 #[test]
 fn continue_hooks_cannot_reintroduce_markers_and_keep_native_sequencer_behavior() {
-        let root = fixture(Operation::Merge);
-        let p = root.path();
-        let working = fs::read(p.join("a.ts")).unwrap();
-        let mut originals = Vec::new();
-        for event in ["pre-commit", "prepare-commit-msg", "commit-msg"] {
-            let body = "oid=$(printf '/*> hook marker */\\nresolved bytes\\n' | git hash-object -w --stdin) || exit $?\ngit update-index --cacheinfo 100644 \"$oid\" a.ts || exit $?";
-            originals.push((event, hook(p, event, body)));
-        }
-        run(p, Operation::Merge).unwrap();
-        assert_eq!(git(p, &["show", "HEAD:a.ts"]), "resolved bytes\n");
-        assert_eq!(git(p, &["show", ":a.ts"]), "resolved bytes\n");
-        assert_eq!(fs::read(p.join("a.ts")).unwrap(), working);
-        let calls = fs::read_to_string(p.join("hook-calls")).unwrap();
-        assert!(
-            calls.lines().any(|event| event == "prepare-commit-msg"),
-            "{calls}"
-        );
-        assert!(calls.lines().any(|event| event == "pre-commit"), "{calls}");
-        assert!(calls.lines().any(|event| event == "commit-msg"), "{calls}");
-        for (event, bytes) in originals {
-            assert_eq!(
-                fs::read(p.join(".git/user hooks").join(event)).unwrap(),
-                bytes
-            );
-        }
+    let root = fixture(Operation::Merge);
+    let p = root.path();
+    let working = fs::read(p.join("a.ts")).unwrap();
+    let mut originals = Vec::new();
+    for event in ["pre-commit", "prepare-commit-msg", "commit-msg"] {
+        let body = "oid=$(printf '/*> hook marker */\\nresolved bytes\\n' | git hash-object -w --stdin) || exit $?\ngit update-index --cacheinfo 100644 \"$oid\" a.ts || exit $?";
+        originals.push((event, hook(p, event, body)));
+    }
+    run(p, Operation::Merge).unwrap();
+    assert_eq!(git(p, &["show", "HEAD:a.ts"]), "resolved bytes\n");
+    assert_eq!(git(p, &["show", ":a.ts"]), "resolved bytes\n");
+    assert_eq!(fs::read(p.join("a.ts")).unwrap(), working);
+    let calls = fs::read_to_string(p.join("hook-calls")).unwrap();
+    assert!(
+        calls.lines().any(|event| event == "prepare-commit-msg"),
+        "{calls}"
+    );
+    assert!(calls.lines().any(|event| event == "pre-commit"), "{calls}");
+    assert!(calls.lines().any(|event| event == "commit-msg"), "{calls}");
+    for (event, bytes) in originals {
         assert_eq!(
-            git(p, &["config", "core.hooksPath"]).trim(),
-            ".git/user hooks"
+            fs::read(p.join(".git/user hooks").join(event)).unwrap(),
+            bytes
         );
+    }
+    assert_eq!(
+        git(p, &["config", "core.hooksPath"]).trim(),
+        ".git/user hooks"
+    );
 }
 
 #[test]
 fn rebase_marker_preflight_refuses_without_changing_files_index_or_head() {
-    let root = fixture(Operation::Rebase); let p = root.path();
+    let root = fixture(Operation::Rebase);
+    let p = root.path();
     let head = git(p, &["rev-parse", "HEAD"]);
     let working = fs::read(p.join("a.ts")).unwrap();
     let index = fs::read(p.join(".git/index")).unwrap();
     let original = hook(p, "prepare-commit-msg", ":");
     let error = run(p, Operation::Rebase).unwrap_err();
-    assert!(error.to_string().contains("Remove the message line"), "{error:#}");
+    assert!(
+        error.to_string().contains("Remove the message line"),
+        "{error:#}"
+    );
     assert_eq!(git(p, &["rev-parse", "HEAD"]), head);
     assert_eq!(fs::read(p.join("a.ts")).unwrap(), working);
     assert_eq!(fs::read(p.join(".git/index")).unwrap(), index);
     assert!(!p.join("hook-calls").exists());
-    assert_eq!(fs::read(p.join(".git/user hooks/prepare-commit-msg")).unwrap(), original);
+    assert_eq!(
+        fs::read(p.join(".git/user hooks/prepare-commit-msg")).unwrap(),
+        original
+    );
 }
 
 #[test]
 fn marker_free_rebase_preserves_native_prepare_hook_and_its_rejection() {
     for reject in [false, true] {
-        let root = fixture(Operation::Rebase); let p = root.path();
+        let root = fixture(Operation::Rebase);
+        let p = root.path();
         fs::write(p.join("a.ts"), "resolved bytes\n").unwrap();
         git(p, &["add", "a.ts"]);
         let head = git(p, &["rev-parse", "HEAD"]);
-        let original = hook(p, "prepare-commit-msg", if reject { "exit 39" } else { ":" });
+        let original = hook(
+            p,
+            "prepare-commit-msg",
+            if reject { "exit 39" } else { ":" },
+        );
         let result = run(p, Operation::Rebase);
         if reject {
             assert!(result.is_err());
@@ -168,24 +180,44 @@ fn marker_free_rebase_preserves_native_prepare_hook_and_its_rejection() {
             assert_eq!(git(p, &["show", "HEAD:a.ts"]), "resolved bytes\n");
             assert!(!p.join(".git/rebase-merge").exists());
         }
-        assert_eq!(fs::read_to_string(p.join("a.ts")).unwrap(), "resolved bytes\n");
-        assert_eq!(fs::read_to_string(p.join("hook-calls")).unwrap(), "prepare-commit-msg\n");
-        assert_eq!(fs::read(p.join(".git/user hooks/prepare-commit-msg")).unwrap(), original);
+        assert_eq!(
+            fs::read_to_string(p.join("a.ts")).unwrap(),
+            "resolved bytes\n"
+        );
+        assert_eq!(
+            fs::read_to_string(p.join("hook-calls")).unwrap(),
+            "prepare-commit-msg\n"
+        );
+        assert_eq!(
+            fs::read(p.join(".git/user hooks/prepare-commit-msg")).unwrap(),
+            original
+        );
     }
 }
 
 #[test]
 fn rebase_prepare_hook_index_reinjection_refuses_before_committing() {
-    let root = fixture(Operation::Rebase); let p = root.path();
+    let root = fixture(Operation::Rebase);
+    let p = root.path();
     fs::write(p.join("a.ts"), "resolved bytes\n").unwrap();
     git(p, &["add", "a.ts"]);
     let head = git(p, &["rev-parse", "HEAD"]);
-    hook(p, "prepare-commit-msg", "oid=$(printf '/*> injected */\\nresolved bytes\\n' | git hash-object -w --stdin) || exit $?\ngit update-index --cacheinfo 100644 \"$oid\" a.ts || exit $?");
+    hook(
+        p,
+        "prepare-commit-msg",
+        "oid=$(printf '/*> injected */\\nresolved bytes\\n' | git hash-object -w --stdin) || exit $?\ngit update-index --cacheinfo 100644 \"$oid\" a.ts || exit $?",
+    );
     assert!(run(p, Operation::Rebase).is_err());
     assert_eq!(git(p, &["rev-parse", "HEAD"]), head);
-    assert_eq!(fs::read_to_string(p.join("a.ts")).unwrap(), "resolved bytes\n");
+    assert_eq!(
+        fs::read_to_string(p.join("a.ts")).unwrap(),
+        "resolved bytes\n"
+    );
     // The user's hook changed the index. Refusal must not claim otherwise.
-    assert_eq!(git(p, &["show", ":a.ts"]), "/*> injected */\nresolved bytes\n");
+    assert_eq!(
+        git(p, &["show", ":a.ts"]),
+        "/*> injected */\nresolved bytes\n"
+    );
     assert!(p.join(".git/rebase-merge").is_dir());
 }
 

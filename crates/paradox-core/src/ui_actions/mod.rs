@@ -368,10 +368,19 @@ pub fn execute_with_executable(
     mut on_event: impl FnMut(ProgressEvent) + Send,
 ) -> Result<Value> {
     let repo = repo.refreshed_head()?;
-    let rebase_continue = matches!(action, Action::Continue { operation: Operation::Rebase });
+    let rebase_continue = matches!(
+        action,
+        Action::Continue {
+            operation: Operation::Rebase
+        }
+    );
     if rebase_continue {
         let markers = crate::commit::staged_marker_paths(&repo)?;
-        ensure!(markers.is_empty(), "Cannot continue rebase with staged AI message markers in {}. Git checks working/index equality before committing and can select its tree before commit hooks. Remove the message line from each resolved working file, stage it again, then Continue. This preflight changed neither files nor the index.", markers.join(", "));
+        ensure!(
+            markers.is_empty(),
+            "Cannot continue rebase with staged AI message markers in {}. Git checks working/index equality before committing and can select its tree before commit hooks. Remove the message line from each resolved working file, stage it again, then Continue. This preflight changed neither files nor the index.",
+            markers.join(", ")
+        );
     }
     let destructive = safety::destructive(&action);
     if destructive {

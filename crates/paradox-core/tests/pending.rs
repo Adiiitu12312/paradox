@@ -168,7 +168,13 @@ fn successor_store_open_waits_for_sqlite_wal_cleanup() {
                 barrier.wait();
                 for _ in 0..40 {
                     let store = LoopStore::open(repo.clone()).unwrap();
-                    store.index.execute("INSERT OR REPLACE INTO meta(key,value) VALUES('handoff_test','ok')", []).unwrap();
+                    store
+                        .index
+                        .execute(
+                            "INSERT OR REPLACE INTO meta(key,value) VALUES('handoff_test','ok')",
+                            [],
+                        )
+                        .unwrap();
                     drop(store);
                 }
             })
@@ -178,5 +184,11 @@ fn successor_store_open_waits_for_sqlite_wal_cleanup() {
         thread.join().unwrap();
     }
     let store = LoopStore::open(repo).unwrap();
-    assert_eq!(store.index.query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0)).unwrap(), "ok");
+    assert_eq!(
+        store
+            .index
+            .query_row("PRAGMA integrity_check", [], |row| row.get::<_, String>(0))
+            .unwrap(),
+        "ok"
+    );
 }
