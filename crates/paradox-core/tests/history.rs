@@ -427,7 +427,7 @@ fn version_one_store_migrates_without_losing_content_or_ids() {
             .query_row("SELECT version FROM schema_version", [], |row| row
                 .get::<_, i64>(0))
             .unwrap(),
-        2
+        3
     );
 }
 
@@ -607,7 +607,10 @@ fn batch_rewind_above_soft_cap_keeps_durable_undo_and_user_pins() {
         let expected = if path == "a.ts" { &new_a } else { &new_b };
         assert_eq!(store.version_bytes(path, &backup).unwrap(), *expected);
         let records = store.loops(path).unwrap();
-        assert_eq!(records.iter().find(|row| row.id == *id).unwrap().kind, "safety");
+        assert_eq!(
+            records.iter().find(|row| row.id == *id).unwrap().kind,
+            "safety"
+        );
     }
     store.rewind_file(Path::new("a.ts"), "undo").unwrap();
     store.rewind_file(Path::new("b.ts"), "undo").unwrap();
@@ -619,7 +622,15 @@ fn batch_rewind_above_soft_cap_keeps_durable_undo_and_user_pins() {
     ] {
         let target = store.resolve(path, &id.to_string()).unwrap();
         assert_eq!(store.version_bytes(path, &target).unwrap(), bytes);
-        assert!(store.loops(path).unwrap().iter().find(|row| row.id == id).unwrap().pinned);
+        assert!(
+            store
+                .loops(path)
+                .unwrap()
+                .iter()
+                .find(|row| row.id == id)
+                .unwrap()
+                .pinned
+        );
     }
     assert_eq!(
         store

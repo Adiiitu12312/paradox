@@ -212,12 +212,18 @@ M9. Hardening: cross-platform CI green, README (install, quickstart, command ref
 
 ## Accepted amendments (October 15, 2026)
 
-Current owner instruction: pause UI implementation while applying and testing
-these core follow-ups. Stop at the accepted M7 boundary. M8 (loop UI) and M9
+Current owner instruction: complete and test the core amendments, finish all
+remaining M7 acceptance work, then STOP at the accepted M7 boundary. M8 (loop UI) and M9
 (release hardening) remain pending for later; do not begin them now. Previously
 closed milestones receive focused follow-up fixes and regression tests rather
 than being restarted. The storage, retention, lock contention, pass-through,
 dispatcher and deletion rules above supersede their earlier versions.
+
+S — PENDING: future cloud-system discovery and brainstorming. The owner has
+mentioned Meta's EdenFS/Sapling and a Claude-related version-control system as
+references to investigate. Do not research this before M7 is accepted and do
+not build it now. The system identity, scope and architecture are unconfirmed;
+decide them with the owner in the later brainstorming phase.
 
 For the rest of development, when all functional tests pass and a performance
 or memory gate misses by under 10%, document the exception, set a realistic

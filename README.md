@@ -4,8 +4,9 @@ A Rust Git wrapper that will add local per-file loops and a browser Git UI.
 Git remains the source of truth; every Git operation uses the installed Git binary.
 
 **Development status: M1–M5 complete; M6 browser UI is in progress.**
-UI implementation is paused while the [core brief amendments](docs/amendments-core.md)
-are applied and tested. Stop at M7 acceptance; M8/M9 remain pending for later.
+The [core brief amendments](docs/amendments-core.md) are being applied and tested;
+complete M7 acceptance, then stop. M8, M9 and S (future cloud-system exploration)
+remain pending for later. No cloud research starts before M7 is accepted.
 The [M6 work report](docs/milestones/M6.md) records its current validation state.
 See the [M1 verification report](docs/milestones/M1.md) for measured results.
 The [M2 verification report](docs/milestones/M2.md) records capture tests and timing gates.

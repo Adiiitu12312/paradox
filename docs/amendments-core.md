@@ -1,7 +1,8 @@
 # Core amendments: implementation and validation in progress
 
-UI implementation is paused at the owner's request. M6/M7 acceptance remains
-pending; M8/M9 are deferred. These focused changes amend earlier milestones
+The owner's latest instruction is to complete these amendments and all M7
+acceptance work, then stop. M8/M9 and S (cloud-system exploration) remain pending;
+no cloud research starts before M7 acceptance. These focused changes amend earlier milestones
 without restarting their finished work.
 
 The store moves to `<git-common-dir>/paradox` (`.git/paradox` in a normal repo).
