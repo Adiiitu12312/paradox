@@ -211,6 +211,17 @@ M9. Hardening: cross-platform CI green, README (install, quickstart, command ref
 
 ## Accepted amendments (October 15, 2026)
 
+For the rest of development, when all functional tests pass and a performance
+or memory gate misses by under 10%, document the exception, set a realistic
+OS-specific CI threshold with stored baseline-regression protection, and
+continue without asking. Ask the owner only for a miss over 10% or a
+safety/durability tradeoff. Record the measured value, original limit, percentage
+miss, reason, new limit and baseline in the milestone report and benchmark data.
+Keep safety, atomic writes, fsync and locking requirements intact. This latest
+rule supersedes earlier instructions to keep a milestone open for every small
+performance or memory overage; it does not waive functional failures. Existing
+limits stay in place unless a measured exception is documented.
+
 The owner subsequently authorized continuing directly from accepted M4.5 into
 M5 and the remaining milestones, while reporting each boundary. The temporary
 battery-related request to stop after M4.5 was explicitly withdrawn.

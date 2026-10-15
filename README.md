@@ -265,11 +265,19 @@ Capture performance remains a separate strict gate with no rerun voting.
 regressions: the ceiling is the smaller of the OS limit and the recorded baseline
 plus 50% and 1 ms scheduling allowance. Point observations are recorded separately;
 the allowance and two-of-three rule absorb shared-runner noise. OS thresholds
-remain 5 ms for Linux/macOS and 20 ms for Windows; baselines are not increased.
+currently remain 5 ms for Linux/macOS and 20 ms for Windows; baselines do not
+increase automatically.
 New [pass-through observations](benchmarks/passthrough-observations.csv) and
 [capture observations](benchmarks/capture-observations.csv) record later results,
-including failures, separately from the immutable gate baselines. Full raw
+including failures, separately from the reviewed gate baselines. Full raw
 pass-through pairs are retained in each CI run's assessment artifacts.
+
+During development, a performance or memory overage under 10% may receive a
+documented exception once all functional tests pass. Record the original limit,
+measurement, percentage miss, reason and new OS-specific threshold and baseline;
+CI must still reject subsequent baseline regressions. Larger misses and any
+safety/durability tradeoff require the owner's decision. Test runs never adjust
+their own limits, and an exception cannot waive a functional failure.
 
 On macOS, FSEvents and local-timezone framework calls load on demand. Ordinary
 Git pass-through therefore avoids initializing those frameworks. The native
