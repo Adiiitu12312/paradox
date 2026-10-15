@@ -21,6 +21,7 @@ jobs:
           BUILD_RUN_ID: ${{ inputs.build_run_id }}
         run: gh run download $env:BUILD_RUN_ID --name paradox-Windows-X64 --dir .terminal-bin
       - name: Install terminal helper on hosted runner
-        run: python -m pip install --only-binary=:all: "pywinpty>=3,<4"
+        run: |
+          python -m pip install --only-binary=:all: "pywinpty>=3,<4"
       - name: Verify terminal colors, pager, editor and Ctrl+C
         run: python scripts/test_terminal.py .terminal-bin/paradox.exe
