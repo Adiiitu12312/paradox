@@ -190,6 +190,47 @@ fn symlink_diff_shows_target_and_refuses_external_parent() {
 }
 
 #[test]
+fn graph_includes_detached_head_and_attaches_lightweight_and_annotated_tags() {
+    let f = Fixture::new();
+    f.initial("one\n");
+    f.git(&["checkout", "--detach", "-q"]);
+    f.write("a.ts", "detached\n");
+    f.git(&["add", "a.ts"]);
+    f.git(&["commit", "-qm", "detached-only"]);
+    let detached = f.git(&["rev-parse", "HEAD"]).trim().to_owned();
+    let graph = ui_git::graph(f.repo(), None).unwrap();
+    assert_eq!(graph["head"], detached);
+    assert!(
+        graph["commits"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|commit| commit["sha"] == detached)
+    );
+    f.git(&["tag", "lightweight"]);
+    f.git(&["tag", "-a", "annotated", "-m", "annotated tag"]);
+    let graph = ui_git::graph(f.repo(), None).unwrap();
+    let commit = graph["commits"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|commit| commit["sha"] == detached)
+        .unwrap();
+    assert!(
+        commit["refs"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("refs/tags/lightweight"))
+    );
+    assert!(
+        commit["refs"]
+            .as_array()
+            .unwrap()
+            .contains(&serde_json::json!("refs/tags/annotated"))
+    );
+}
+
+#[test]
 fn first_graph_page_on_one_hundred_thousand_commits_is_bounded_and_fast() {
     use std::io::Write;
     use std::process::Stdio;
