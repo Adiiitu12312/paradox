@@ -13,7 +13,10 @@ struct FileArgs {
 }
 
 #[derive(Parser)]
-#[command(name = "paradox timeline", about = "Choose a recent or uncommitted file and view its loops")]
+#[command(
+    name = "paradox timeline",
+    about = "Choose a recent or uncommitted file and view its loops"
+)]
 struct TimelineArgs {}
 
 struct FileChoice(String);
@@ -166,16 +169,19 @@ fn execute(args: &[OsString], index: usize) -> Result<()> {
             }
             // Discovery never opens the store. An agent/editor must be able to
             // capture while this prompt waits for an arbitrarily long time.
-            let choice = inquire::Select::new(
-                "Choose a file",
-                paths.into_iter().map(FileChoice).collect(),
-            )
-            .with_page_size(12)
-            .with_help_message("Type to filter; arrows to move; Enter to view loops; Esc to cancel")
-            .prompt();
+            let choice =
+                inquire::Select::new("Choose a file", paths.into_iter().map(FileChoice).collect())
+                    .with_page_size(12)
+                    .with_help_message(
+                        "Type to filter; arrows to move; Enter to view loops; Esc to cancel",
+                    )
+                    .prompt();
             let choice = match choice {
                 Ok(choice) => choice,
-                Err(inquire::InquireError::OperationCanceled | inquire::InquireError::OperationInterrupted) => {
+                Err(
+                    inquire::InquireError::OperationCanceled
+                    | inquire::InquireError::OperationInterrupted,
+                ) => {
                     println!("Timeline cancelled.");
                     return Ok(());
                 }

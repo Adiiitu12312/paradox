@@ -226,25 +226,56 @@ impl Repo {
     pub fn timeline_paths(&self) -> Result<Vec<String>> {
         let mut paths: BTreeSet<_> = self.git_changes()?.dirty.into_iter().collect();
         let cached = self.git_tracked(&[])?;
-        paths.extend(self.extra_tracked()?.into_iter().filter(|path| !cached.contains(path)));
+        paths.extend(
+            self.extra_tracked()?
+                .into_iter()
+                .filter(|path| !cached.contains(path)),
+        );
 
         // Read current HEAD rather than the discovery snapshot: a Repo may be
         // reused after a native Git commit. Unborn repositories have no diff.
-        let head = self.command(&["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]).output()?;
+        let head = self
+            .command(&["rev-parse", "--verify", "--quiet", "HEAD^{commit}"])
+            .output()?;
         if head.status.code() == Some(1) {
             return Ok(paths.into_iter().collect());
         }
-        ensure!(head.status.success(), "Git HEAD lookup failed: {}", String::from_utf8_lossy(&head.stderr));
+        ensure!(
+            head.status.success(),
+            "Git HEAD lookup failed: {}",
+            String::from_utf8_lossy(&head.stderr)
+        );
         let head = std::str::from_utf8(&head.stdout)?.trim();
-        let commits = self.git(&["--no-lazy-fetch", "rev-list", "--first-parent", "--max-count=4", head])?;
-        let boundary = std::str::from_utf8(&commits.stdout)?.lines().last().context("missing timeline boundary")?;
-        let changed = self.git(&[
-            "--no-lazy-fetch", "diff", "--name-only", "-z", "--no-renames",
-            "--no-ext-diff", "--no-textconv", "--no-color", boundary, "--",
+        let commits = self.git(&[
+            "--no-lazy-fetch",
+            "rev-list",
+            "--first-parent",
+            "--max-count=4",
+            head,
         ])?;
-        paths.extend(changed.stdout.split(|byte| *byte == 0)
-            .filter(|path| !path.is_empty())
-            .filter_map(|path| std::str::from_utf8(path).ok().map(str::to_owned)));
+        let boundary = std::str::from_utf8(&commits.stdout)?
+            .lines()
+            .last()
+            .context("missing timeline boundary")?;
+        let changed = self.git(&[
+            "--no-lazy-fetch",
+            "diff",
+            "--name-only",
+            "-z",
+            "--no-renames",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            boundary,
+            "--",
+        ])?;
+        paths.extend(
+            changed
+                .stdout
+                .split(|byte| *byte == 0)
+                .filter(|path| !path.is_empty())
+                .filter_map(|path| std::str::from_utf8(path).ok().map(str::to_owned)),
+        );
         Ok(paths.into_iter().collect())
     }
 

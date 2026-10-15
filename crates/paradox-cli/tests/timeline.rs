@@ -4,7 +4,10 @@ use std::process::{Command, Output, Stdio};
 
 fn command(executable: &str, root: &Path, arguments: &[&str]) -> Output {
     let mut command = Command::new(executable);
-    command.current_dir(root).args(arguments).stdin(Stdio::null());
+    command
+        .current_dir(root)
+        .args(arguments)
+        .stdin(Stdio::null());
     for (key, _) in std::env::vars_os() {
         if key.to_string_lossy().starts_with("GIT_") {
             command.env_remove(key);
@@ -28,7 +31,11 @@ fn px(root: &Path, arguments: &[&str]) -> Output {
 
 fn git(root: &Path, arguments: &[&str]) {
     let output = command("git", root, arguments);
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
 
 #[test]
@@ -39,6 +46,8 @@ fn help_and_invalid_options_work_without_repository_or_sidecar() {
     assert!(String::from_utf8_lossy(&help.stdout).contains("Choose a recent or uncommitted file"));
     let invalid = px(root.path(), &["timeline", "--unknown"]);
     assert_eq!(invalid.status.code(), Some(2));
+    let outside = px(root.path(), &["timeline"]);
+    assert_eq!(outside.status.code(), Some(1));
     assert!(!root.path().join(".paradox").exists());
     assert!(!root.path().join(".git").exists());
 }
@@ -55,7 +64,9 @@ fn empty_picker_and_nonterminal_failure_do_not_open_or_create_store() {
     fs::write(root.path().join("noise/untracked.ts"), "noise\n").unwrap();
     let empty = px(root.path(), &["timeline"]);
     assert!(empty.status.success());
-    assert!(String::from_utf8_lossy(&empty.stdout).contains("No recent or uncommitted tracked files."));
+    assert!(
+        String::from_utf8_lossy(&empty.stdout).contains("No recent or uncommitted tracked files.")
+    );
     assert!(!root.path().join(".paradox").exists());
     fs::write(root.path().join("a.ts"), "base\n").unwrap();
     git(root.path(), &["add", "a.ts"]);
@@ -65,7 +76,16 @@ fn empty_picker_and_nonterminal_failure_do_not_open_or_create_store() {
     assert!(!root.path().join(".paradox").exists());
     fs::write(root.path().join("a.ts"), "//> pending\nchanged\n").unwrap();
     let no_terminal = px(root.path(), &["timeline"]);
-    assert!(!no_terminal.status.success(), "a picker requires an interactive terminal");
-    assert!(!root.path().join(".paradox").exists(), "waiting or failing to prompt must not open a store");
-    assert_eq!(fs::read(root.path().join(".git/info/exclude")).unwrap(), exclude_before);
+    assert!(
+        !no_terminal.status.success(),
+        "a picker requires an interactive terminal"
+    );
+    assert!(
+        !root.path().join(".paradox").exists(),
+        "waiting or failing to prompt must not open a store"
+    );
+    assert_eq!(
+        fs::read(root.path().join(".git/info/exclude")).unwrap(),
+        exclude_before
+    );
 }

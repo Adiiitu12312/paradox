@@ -39,7 +39,11 @@ impl Fixture {
 
     fn git(&self, arguments: &[&str]) {
         let output = self.command(arguments);
-        assert!(output.status.success(), "{arguments:?}: {}", String::from_utf8_lossy(&output.stderr));
+        assert!(
+            output.status.success(),
+            "{arguments:?}: {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
     }
 
     fn write(&self, name: &str, content: &str) {
@@ -67,7 +71,11 @@ impl Fixture {
         let repo = self.repo();
         let worktrees = BTreeMap::from([(repo.worktree, names)]);
         fs::create_dir_all(&repo.store).unwrap();
-        fs::write(repo.store.join("tracked.toml"), toml::to_string(&BTreeMap::from([("worktrees", worktrees)])).unwrap()).unwrap();
+        fs::write(
+            repo.store.join("tracked.toml"),
+            toml::to_string(&BTreeMap::from([("worktrees", worktrees)])).unwrap(),
+        )
+        .unwrap();
     }
 }
 
@@ -86,8 +94,14 @@ fn zero_through_five_commits_use_current_head_and_the_exact_net_boundary() {
         let name = format!("commit-{count}.ts");
         fixture.write(&name, "new\n");
         fixture.commit(&[&name]);
-        let expected: Vec<_> = (2.max(count - 2)..=count).map(|number| format!("commit-{number}.ts")).collect();
-        assert_eq!(reused_repo.timeline_paths().unwrap(), expected, "{count} commits");
+        let expected: Vec<_> = (2.max(count - 2)..=count)
+            .map(|number| format!("commit-{number}.ts"))
+            .collect();
+        assert_eq!(
+            reused_repo.timeline_paths().unwrap(),
+            expected,
+            "{count} commits"
+        );
     }
 }
 
@@ -113,9 +127,10 @@ fn net_reverts_are_excluded_but_dirty_tracked_paths_and_recent_deletions_survive
     for number in 0..20 {
         fixture.write(&format!("untracked/{number}/noise.ts"), "noise\n");
     }
-    assert_eq!(fixture.repo().timeline_paths().unwrap(), [
-        "deleted.ts", "new.ts", "old.ts", "staged.ts", "working.ts",
-    ]);
+    assert_eq!(
+        fixture.repo().timeline_paths().unwrap(),
+        ["deleted.ts", "new.ts", "old.ts", "staged.ts", "working.ts",]
+    );
 }
 
 #[test]
@@ -128,19 +143,28 @@ fn explicit_new_paths_are_included_but_clean_committed_entries_are_not_dirty() {
     fixture.write("raw-untracked.ts", "noise\n");
     fixture.explicit(&["quiet.ts", "extra.ts", "eventually-git.ts"]);
     let repo = fixture.repo();
-    assert_eq!(repo.timeline_paths().unwrap(), ["eventually-git.ts", "extra.ts"]);
+    assert_eq!(
+        repo.timeline_paths().unwrap(),
+        ["eventually-git.ts", "extra.ts"]
+    );
     // Keep the preexisting public API's capture behavior intact.
     assert!(repo.changes().unwrap().dirty.contains("quiet.ts"));
     assert!(repo.tracked(&[]).unwrap().contains("extra.ts"));
     fixture.git(&["add", "--", "eventually-git.ts"]);
-    assert_eq!(repo.timeline_paths().unwrap(), ["eventually-git.ts", "extra.ts"]);
+    assert_eq!(
+        repo.timeline_paths().unwrap(),
+        ["eventually-git.ts", "extra.ts"]
+    );
     fixture.git(&["commit", "-qm", "now tracked"]);
     for _ in 0..3 {
         fixture.git(&["commit", "--allow-empty", "-qm", "advance boundary"]);
     }
     assert_eq!(repo.timeline_paths().unwrap(), ["extra.ts"]);
     fixture.write("eventually-git.ts", "dirty\n");
-    assert_eq!(repo.timeline_paths().unwrap(), ["eventually-git.ts", "extra.ts"]);
+    assert_eq!(
+        repo.timeline_paths().unwrap(),
+        ["eventually-git.ts", "extra.ts"]
+    );
 }
 
 #[test]
@@ -152,7 +176,11 @@ fn nul_paths_and_rename_records_remain_root_relative_from_a_subdirectory() {
     #[cfg(unix)]
     let names = {
         let mut names = names;
-        names.extend(["nested/line\nname.ts", "nested/tab\tname.ts", "nested/literal\\name.ts"]);
+        names.extend([
+            "nested/line\nname.ts",
+            "nested/tab\tname.ts",
+            "nested/literal\\name.ts",
+        ]);
         names
     };
     for name in &names {
@@ -168,7 +196,10 @@ fn nul_paths_and_rename_records_remain_root_relative_from_a_subdirectory() {
     expected.sort_unstable();
     let nested = fixture.repo_at(&fixture.0.path().join("nested"));
     assert_eq!(nested.timeline_paths().unwrap(), expected);
-    assert_eq!(nested.timeline_paths().unwrap(), fixture.repo().timeline_paths().unwrap());
+    assert_eq!(
+        nested.timeline_paths().unwrap(),
+        fixture.repo().timeline_paths().unwrap()
+    );
 }
 
 #[test]
@@ -182,6 +213,14 @@ fn unmerged_porcelain_records_are_candidates() {
     fixture.git(&["checkout", "-q", "main"]);
     fixture.write("nested/conflict file.ts", "main\n");
     fixture.commit(&["nested/conflict file.ts"]);
-    assert!(!fixture.command(&["merge", "--no-edit", "side"]).status.success());
-    assert_eq!(fixture.repo().timeline_paths().unwrap(), ["nested/conflict file.ts"]);
+    assert!(
+        !fixture
+            .command(&["merge", "--no-edit", "side"])
+            .status
+            .success()
+    );
+    assert_eq!(
+        fixture.repo().timeline_paths().unwrap(),
+        ["nested/conflict file.ts"]
+    );
 }
