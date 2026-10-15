@@ -6,6 +6,10 @@ on:
         description: Completed build workflow run containing the exact release artifacts
         required: true
         type: string
+      timeline:
+        description: Also test the M5 interactive timeline picker
+        type: boolean
+        default: false
 permissions:
   contents: read
   actions: read
@@ -51,6 +55,13 @@ jobs:
           suffix=""
           if [[ "$RUNNER_OS" == "Windows" ]]; then suffix=".exe"; fi
           python -u scripts/test_terminal.py "terminal-bin/paradox$suffix" 2>&1 | tee terminal-evidence/terminal.log
+      - name: Verify timeline picker against the same exact release
+        if: ${{ !cancelled() && inputs.timeline }}
+        shell: bash
+        run: |
+          suffix=""
+          if [[ "$RUNNER_OS" == "Windows" ]]; then suffix=".exe"; fi
+          python -u scripts/test_timeline_terminal.py "terminal-bin/paradox$suffix" 2>&1 | tee terminal-evidence/timeline.log
       - uses: actions/upload-artifact@v4
         if: always()
         with:

@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, bail, ensure};
-use std::collections::HashSet;
+use std::collections::{BTreeSet, HashSet};
 use std::ffi::OsString;
 use std::path::{Component, Path, PathBuf};
 use std::process::Output;
@@ -199,15 +199,7 @@ impl Repo {
     }
 
     pub fn tracked(&self, selected: &[String]) -> Result<HashSet<String>> {
-        let mut args = vec!["--literal-pathspecs", "ls-files", "--cached", "-z", "--"];
-        args.extend(selected.iter().map(String::as_str));
-        let output = self.git(&args)?;
-        let mut tracked: HashSet<String> = output
-            .stdout
-            .split(|b| *b == 0)
-            .filter(|p| !p.is_empty())
-            .filter_map(|p| std::str::from_utf8(p).ok().map(str::to_owned))
-            .collect();
+        let mut tracked = self.git_tracked(selected)?;
         tracked.extend(self.extra_tracked()?.into_iter().filter(|path| {
             selected.is_empty()
                 || selected
@@ -215,6 +207,45 @@ impl Repo {
                     .any(|input| path == input || path.starts_with(&format!("{input}/")))
         }));
         Ok(tracked)
+    }
+
+    fn git_tracked(&self, selected: &[String]) -> Result<HashSet<String>> {
+        let mut args = vec!["--literal-pathspecs", "ls-files", "--cached", "-z", "--"];
+        args.extend(selected.iter().map(String::as_str));
+        let output = self.git(&args)?;
+        let tracked: HashSet<String> = output
+            .stdout
+            .split(|b| *b == 0)
+            .filter(|p| !p.is_empty())
+            .filter_map(|p| std::str::from_utf8(p).ok().map(str::to_owned))
+            .collect();
+        Ok(tracked)
+    }
+
+    /// Root-relative tracked candidates, without discovering untracked files.
+    pub fn timeline_paths(&self) -> Result<Vec<String>> {
+        let mut paths: BTreeSet<_> = self.git_changes()?.dirty.into_iter().collect();
+        let cached = self.git_tracked(&[])?;
+        paths.extend(self.extra_tracked()?.into_iter().filter(|path| !cached.contains(path)));
+
+        // Read current HEAD rather than the discovery snapshot: a Repo may be
+        // reused after a native Git commit. Unborn repositories have no diff.
+        let head = self.command(&["rev-parse", "--verify", "--quiet", "HEAD^{commit}"]).output()?;
+        if head.status.code() == Some(1) {
+            return Ok(paths.into_iter().collect());
+        }
+        ensure!(head.status.success(), "Git HEAD lookup failed: {}", String::from_utf8_lossy(&head.stderr));
+        let head = std::str::from_utf8(&head.stdout)?.trim();
+        let commits = self.git(&["--no-lazy-fetch", "rev-list", "--first-parent", "--max-count=4", head])?;
+        let boundary = std::str::from_utf8(&commits.stdout)?.lines().last().context("missing timeline boundary")?;
+        let changed = self.git(&[
+            "--no-lazy-fetch", "diff", "--name-only", "-z", "--no-renames",
+            "--no-ext-diff", "--no-textconv", "--no-color", boundary, "--",
+        ])?;
+        paths.extend(changed.stdout.split(|byte| *byte == 0)
+            .filter(|path| !path.is_empty())
+            .filter_map(|path| std::str::from_utf8(path).ok().map(str::to_owned)));
+        Ok(paths.into_iter().collect())
     }
 
     pub fn dirty(&self) -> Result<HashSet<String>> {
@@ -276,6 +307,12 @@ impl Repo {
     }
 
     pub fn changes(&self) -> Result<Changes> {
+        let mut changes = self.git_changes()?;
+        changes.dirty.extend(self.extra_tracked()?);
+        Ok(changes)
+    }
+
+    fn git_changes(&self) -> Result<Changes> {
         let output = self.git(&["status", "--porcelain=v2", "-z", "--untracked-files=no"])?;
         let mut dirty = HashSet::new();
         let mut renames = Vec::new();
@@ -311,7 +348,6 @@ impl Repo {
                 renames.push((old.into(), new.into()));
             }
         }
-        dirty.extend(self.extra_tracked()?);
         Ok(Changes { dirty, renames })
     }
 

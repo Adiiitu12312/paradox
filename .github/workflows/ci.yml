@@ -58,6 +58,12 @@ jobs:
       - name: Verify terminal colors, pager, editor and Ctrl+C
         if: runner.os != 'Windows'
         run: python3 scripts/test_terminal.py target/${{ matrix.target }}/release/paradox
+      - name: Verify timeline selection, cancellation and concurrent capture on a real terminal
+        shell: bash
+        run: |
+          suffix=''
+          if [ "$RUNNER_OS" = Windows ]; then suffix='.exe'; fi
+          python scripts/test_timeline_terminal.py "target/${{ matrix.target }}/release/paradox$suffix"
       - name: Package the exact release binary and precompiled timing harness
         if: ${{ !cancelled() && steps.release.outcome == 'success' }}
         shell: bash

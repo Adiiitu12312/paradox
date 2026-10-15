@@ -15,20 +15,28 @@ import time
 
 
 def terminal(executable, arguments, cwd, env, interrupt=False,
-             initial_input=b"", interrupt_ready=b"SIGNAL_READY", observe_git_child=False):
+             initial_input=b"", interrupt_ready=b"SIGNAL_READY", observe_git_child=False,
+             ready_marker=None, ready_input=b"", on_ready=None, timeout_seconds=15):
     if os.name == "nt":
         return windows_terminal(executable, arguments, cwd, env, interrupt,
-                                initial_input, interrupt_ready, observe_git_child)
+                                initial_input, interrupt_ready, observe_git_child,
+                                ready_marker, ready_input, on_ready, timeout_seconds)
     import pty
+    import fcntl
+    import struct
+    import termios
 
     pid, fd = pty.fork()
     if pid == 0:
+        fcntl.ioctl(1, termios.TIOCSWINSZ, struct.pack('HHHH', 24, 100, 0, 0))
         os.chdir(cwd)
         os.execvpe(executable, [executable, *arguments], env)
     output = bytearray()
     status = None
     sent_interrupt = False
-    deadline = time.monotonic() + 15
+    sent_ready = False
+    cursor_queries = 0
+    deadline = time.monotonic() + timeout_seconds
     try:
         if initial_input:
             os.write(fd, initial_input)
@@ -41,6 +49,18 @@ def terminal(executable, arguments, cwd, env, interrupt=False,
                         raise
                     data = b""
                 output.extend(data)
+                # Emulate the standard cursor-position response if the prompt
+                # backend requests it, including a query split across reads.
+                queries = output.count(b"\x1b[6n")
+                if queries > cursor_queries:
+                    os.write(fd, b"\x1b[1;1R" * (queries - cursor_queries))
+                    cursor_queries = queries
+                if ready_marker and ready_marker in output and not sent_ready:
+                    if on_ready:
+                        on_ready()
+                    if ready_input:
+                        os.write(fd, ready_input)
+                    sent_ready = True
                 if interrupt and interrupt_ready in output and not sent_interrupt:
                     os.write(fd, b"\x03")
                     sent_interrupt = True
@@ -50,6 +70,8 @@ def terminal(executable, arguments, cwd, env, interrupt=False,
         assert status is not None, f"terminal command timed out: {arguments}: {output!r}"
         if interrupt:
             assert sent_interrupt, output
+        if ready_marker:
+            assert sent_ready, output
         return os.waitstatus_to_exitcode(status), bytes(output)
     finally:
         if status is None:
@@ -129,7 +151,8 @@ class WindowsChildExit:
 
 
 def windows_terminal(executable, arguments, cwd, env, interrupt,
-                     initial_input, interrupt_ready, observe_git_child):
+                     initial_input, interrupt_ready, observe_git_child,
+                     ready_marker, ready_input, on_ready, timeout_seconds):
     # This helper is installed only on GitHub's hosted Windows runner.
     from winpty import PtyProcess
 
@@ -138,7 +161,8 @@ def windows_terminal(executable, arguments, cwd, env, interrupt,
     sent_interrupt = False
     interrupted_at = None
     observed_child = None
-    deadline = time.monotonic() + 15
+    sent_ready = False
+    deadline = time.monotonic() + timeout_seconds
     try:
         if initial_input:
             # ConPTY receives terminal keystrokes; CR is the Enter key that
@@ -150,6 +174,12 @@ def windows_terminal(executable, arguments, cwd, env, interrupt,
                     output.extend(process.read(65536).encode("utf-8"))
                 except EOFError:
                     break
+                if ready_marker and ready_marker in output and not sent_ready:
+                    if on_ready:
+                        on_ready()
+                    if ready_input:
+                        process.write(ready_input.decode("utf-8"))
+                    sent_ready = True
                 if interrupt and interrupt_ready in output and not sent_interrupt:
                     if observe_git_child:
                         observed_child = WindowsChildExit(process.pid)
@@ -162,6 +192,8 @@ def windows_terminal(executable, arguments, cwd, env, interrupt,
         if interrupt:
             assert sent_interrupt, output
             assert time.monotonic() - interrupted_at < 5, "Ctrl+C did not end the command promptly"
+        if ready_marker:
+            assert sent_ready, output
         if observe_git_child:
             assert observed_child is not None, "Git child was not observed before interruption"
             child_code = observed_child.exit_code()

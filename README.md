@@ -3,7 +3,7 @@
 A Rust Git wrapper that will add local per-file loops and a browser Git UI.
 Git remains the source of truth; every Git operation uses the installed Git binary.
 
-**Development status: M1–M4.5 complete; M5 is next.**
+**Development status: M1–M4.5 complete; M5 is in progress.**
 See the [M1 verification report](docs/milestones/M1.md) for measured results.
 The [M2 verification report](docs/milestones/M2.md) records capture tests and timing gates.
 The [M3 verification report](docs/milestones/M3.md) records history, rewind and tracking validation.
@@ -136,6 +136,7 @@ paradox pin 12
 paradox unpin 12
 paradox track new/file.ts
 paradox untrack new/file.ts
+paradox timeline
 ```
 
 IDs and message substrings select versions of the named file in the current
@@ -144,6 +145,12 @@ accept seconds, minutes, hours or days (`30s`, `10m`, `2h`, `1d`), using the new
 known loop or committed version at/before that time. The list includes UTC
 timestamps, relative ages, kinds, pins, provenance and the HEAD baseline.
 `compare` uses a unified diff, with colors on a terminal; `NO_COLOR` disables them.
+M5's `timeline` picker lists tracked files with uncommitted changes or a net
+change since `HEAD~3` (the root commit when fewer ancestors exist). Type to
+filter, select with Enter, or cancel with Esc/Ctrl+C. Unborn repositories use
+only eligible uncommitted paths. Raw untracked directories are ignored. The
+picker holds no loop-store lock while waiting; selecting opens the same loops
+view. See the [M5 progress report](docs/milestones/M5.md) for pending validation.
 A comparison without selectors first captures pending edits and can therefore
 be empty. Use explicit versions to inspect earlier changes.
 

@@ -13,6 +13,19 @@ struct FileArgs {
 }
 
 #[derive(Parser)]
+#[command(name = "paradox timeline", about = "Choose a recent or uncommitted file and view its loops")]
+struct TimelineArgs {}
+
+struct FileChoice(String);
+
+impl std::fmt::Display for FileChoice {
+    fn fmt(&self, output: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        // Escaping is presentation-only: selection retains the exact raw path.
+        write!(output, "{:?}", self.0)
+    }
+}
+
+#[derive(Parser)]
 #[command(about = "Compare working, HEAD or per-file loop versions")]
 struct CompareArgs {
     file: PathBuf,
@@ -88,7 +101,7 @@ fn print_diff(diff: &str) {
 
 pub fn available(command: &OsStr) -> bool {
     [
-        "loops", "compare", "rewind", "pin", "unpin", "track", "untrack",
+        "loops", "compare", "rewind", "pin", "unpin", "track", "untrack", "timeline",
     ]
     .iter()
     .any(|name| command == *name)
@@ -109,41 +122,78 @@ pub fn run(args: &[OsString], index: usize) -> i32 {
     }
 }
 
+fn print_loops(store: &LoopStore, path: &str) -> Result<()> {
+    println!("Loops for {path:?} (newest first)");
+    for record in store.loops(path)? {
+        println!(
+            "{}  {}  {}  {}{}{}  {}  head={}",
+            record.id,
+            absolute_time(record.ts),
+            relative_time(record.ts),
+            record.kind,
+            if record.pinned { " pinned" } else { "" },
+            if record.deleted { " absent" } else { "" },
+            printable(&record.message),
+            if record.head_sha.is_empty() {
+                "unborn"
+            } else {
+                &record.head_sha[..record.head_sha.len().min(12)]
+            }
+        );
+    }
+    let head = store.head_version(path)?;
+    if store.repo.head.is_empty() {
+        println!("HEAD  no commit (file absent)");
+    } else {
+        println!(
+            "HEAD  {}  committed baseline{}",
+            absolute_time(head.ts),
+            if head.deleted { " (file absent)" } else { "" }
+        );
+    }
+    Ok(())
+}
+
 fn execute(args: &[OsString], index: usize) -> Result<()> {
     match args[index].to_str().context("invalid command")? {
+        "timeline" => {
+            TimelineArgs::try_parse_from(&args[index..])?;
+            let repo = Repo::discover(&args[..index])?;
+            let paths = repo.timeline_paths()?;
+            if paths.is_empty() {
+                println!("No recent or uncommitted tracked files.");
+                return Ok(());
+            }
+            // Discovery never opens the store. An agent/editor must be able to
+            // capture while this prompt waits for an arbitrarily long time.
+            let choice = inquire::Select::new(
+                "Choose a file",
+                paths.into_iter().map(FileChoice).collect(),
+            )
+            .with_page_size(12)
+            .with_help_message("Type to filter; arrows to move; Enter to view loops; Esc to cancel")
+            .prompt();
+            let choice = match choice {
+                Ok(choice) => choice,
+                Err(inquire::InquireError::OperationCanceled | inquire::InquireError::OperationInterrupted) => {
+                    println!("Timeline cancelled.");
+                    return Ok(());
+                }
+                Err(error) => return Err(error.into()),
+            };
+            let mut store = open(args, index)?;
+            // Git returns root-relative paths even under `-C nested`; do not
+            // apply the invocation prefix a second time.
+            let path = store.repo.relative(&store.repo.root.join(choice.0))?;
+            fallback(&mut store);
+            print_loops(&store, &path)?;
+        }
         "loops" => {
             let options = FileArgs::try_parse_from(&args[index..])?;
             let mut store = open(args, index)?;
             let path = store.repo.relative(&options.file)?;
             fallback(&mut store);
-            println!("Loops for {path:?} (newest first)");
-            for record in store.loops(&path)? {
-                println!(
-                    "{}  {}  {}  {}{}{}  {}  head={}",
-                    record.id,
-                    absolute_time(record.ts),
-                    relative_time(record.ts),
-                    record.kind,
-                    if record.pinned { " pinned" } else { "" },
-                    if record.deleted { " absent" } else { "" },
-                    printable(&record.message),
-                    if record.head_sha.is_empty() {
-                        "unborn"
-                    } else {
-                        &record.head_sha[..record.head_sha.len().min(12)]
-                    }
-                );
-            }
-            let head = store.head_version(&path)?;
-            if store.repo.head.is_empty() {
-                println!("HEAD  no commit (file absent)");
-            } else {
-                println!(
-                    "HEAD  {}  committed baseline{}",
-                    absolute_time(head.ts),
-                    if head.deleted { " (file absent)" } else { "" }
-                );
-            }
+            print_loops(&store, &path)?;
         }
         "compare" => {
             let options = CompareArgs::try_parse_from(&args[index..])?;
