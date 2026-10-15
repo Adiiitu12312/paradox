@@ -1,5 +1,5 @@
 use anyhow::{Context, Result, ensure};
-use globset::{Glob, GlobSet, GlobSetBuilder};
+use globset::{GlobBuilder, GlobSet, GlobSetBuilder};
 use rusqlite::{Connection, OptionalExtension, params};
 use std::collections::{HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
@@ -57,9 +57,18 @@ pub fn now() -> Result<i64> {
     )?)
 }
 
+fn sql_size(row: &rusqlite::Row<'_>, column: usize) -> rusqlite::Result<u64> {
+    let value: i64 = row.get(column)?;
+    u64::try_from(value).map_err(|error| rusqlite::Error::FromSqlConversionFailure(
+        column, rusqlite::types::Type::Integer, Box::new(error)))
+}
+
 impl LoopStore {
     /// Every mutating operation holds this advisory lock for its whole lifetime.
     pub fn open(repo: Repo) -> Result<Self> {
+        // Install the exclusion before creating any sidecar files. If exclude
+        // cannot be updated, fail without exposing store contents to git add.
+        Self::exclude_metadata(&repo)?;
         directory(&repo.store)?;
         let lock_path = repo.store.join("lock");
         reject_link(&lock_path)?;
@@ -74,8 +83,13 @@ impl LoopStore {
         for file in ["index.sqlite3", "index.sqlite3-wal", "index.sqlite3-shm"] {
             reject_link(&repo.store.join(file))?;
         }
-        let index = Connection::open(repo.store.join("index.sqlite3"))?;
+        let index_path = repo.store.join("index.sqlite3");
+        let existing = fs::metadata(&index_path).is_ok_and(|m| m.len() > 0);
+        let index = Connection::open(index_path)?;
         index.busy_timeout(Duration::from_secs(5))?;
+        let application: i64 = index.query_row("PRAGMA application_id", [], |r| r.get(0))?;
+        ensure!(!existing || application == 0x50584431, "index is not a recognized Paradox store");
+        if !existing { index.execute_batch("PRAGMA application_id=1347961905;")?; }
         index.execute_batch(
             "PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA foreign_keys=ON;
             CREATE TABLE IF NOT EXISTS schema_version(version INTEGER NOT NULL);",
@@ -109,7 +123,7 @@ impl LoopStore {
             .iter()
             .chain(&config.secrets_denylist)
         {
-            builder.add(Glob::new(pattern)?);
+            builder.add(GlobBuilder::new(pattern).case_insensitive(true).build()?);
         }
         let denylist = builder.build()?;
         let blobs = LocalStore::new(repo.store.join("blobs"), config.size_limit_bytes)?;
@@ -122,12 +136,11 @@ impl LoopStore {
             pending_stats: Vec::new(),
             _lock: lock,
         };
-        store.exclude_metadata()?;
         Ok(store)
     }
 
-    fn exclude_metadata(&self) -> Result<()> {
-        let info = self.repo.common.join("info");
+    fn exclude_metadata(repo: &Repo) -> Result<()> {
+        let info = repo.common.join("info");
         directory(&info)?;
         let path = info.join("exclude");
         reject_link(&path)?;
@@ -165,7 +178,7 @@ impl LoopStore {
                     auto_label: r.get(5)?,
                     head_sha: r.get(6)?,
                     pinned: r.get(7)?,
-                    size: r.get(8)?,
+                    size: sql_size(r,8)?,
                     kind: r.get(9)?,
                 })
             })?
@@ -178,14 +191,14 @@ impl LoopStore {
             .query_row(
                 "SELECT mtime_ns,size,last_hash FROM stat_cache WHERE worktree=?1 AND path=?2",
                 params![self.repo.worktree, path],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                |r| Ok((r.get(0)?, sql_size(r,1)?, r.get(2)?)),
             )
             .optional()?)
     }
 
     fn cache_write(&self, path: &str, state: (i64, u64), hash: &str) -> Result<()> {
         self.index.execute("INSERT INTO stat_cache VALUES(?1,?2,?3,?4,?5) ON CONFLICT(worktree,path) DO UPDATE SET mtime_ns=excluded.mtime_ns,size=excluded.size,last_hash=excluded.last_hash",
-            params![self.repo.worktree,path,state.0,state.1,hash])?;
+            params![self.repo.worktree,path,state.0,i64::try_from(state.1)?,hash])?;
         Ok(())
     }
 
@@ -234,7 +247,7 @@ impl LoopStore {
                         "SELECT path,mtime_ns,size,last_hash FROM stat_cache WHERE worktree=?1",
                     )?
                     .query_map([&self.repo.worktree], |r| {
-                        Ok((r.get(0)?, (r.get(1)?, r.get(2)?, r.get(3)?)))
+                        Ok((r.get(0)?, (r.get(1)?, sql_size(r,2)?, r.get(3)?)))
                     })?
                     .collect::<rusqlite::Result<_>>()?,
             )
@@ -280,6 +293,9 @@ impl LoopStore {
         // before references are committed; orphan cleanup can always run later.
         self.index
             .execute_batch("PRAGMA wal_checkpoint(TRUNCATE);")?;
+        if self.bytes()? > self.config.store_cap_bytes {
+            self.gc()?;
+        }
         Ok(report)
     }
 
@@ -311,7 +327,7 @@ impl LoopStore {
         }
         let mut bytes = Vec::new();
         File::open(self.repo.root.join(path))?
-            .take(self.config.size_limit_bytes + 1)
+            .take(self.config.size_limit_bytes.saturating_add(1))
             .read_to_end(&mut bytes)?;
         if bytes.len() as u64 > self.config.size_limit_bytes
             || bytes.iter().take(8192).any(|b| *b == 0)
@@ -338,7 +354,7 @@ impl LoopStore {
             None => Vec::new(),
         };
         let (message, auto_label) = crate::message::label(Path::new(path), &bytes, &previous);
-        let stored_size = self.blobs.put(&hash, &bytes)?;
+        let stored_size = i64::try_from(self.blobs.put(&hash, &bytes)?)?;
         crate::fault("after_blob");
         self.index.execute_batch("BEGIN IMMEDIATE")?;
         let result = (|| -> Result<Vec<String>> {
@@ -353,7 +369,7 @@ impl LoopStore {
                 )?;
             }
             self.index.execute("INSERT INTO loops(worktree,path,blob_hash,ts,message,auto_label,head_sha,pinned,size,kind) VALUES(?1,?2,?3,?4,?5,?6,?7,0,?8,?9)",
-                params![self.repo.worktree,path,hash,now()?,message,auto_label,self.repo.head,bytes.len() as u64,kind])?;
+                params![self.repo.worktree,path,hash,now()?,message,auto_label,self.repo.head,i64::try_from(bytes.len())?,kind])?;
             crate::fault("after_index_insert");
             self.cache_write(path, state, &hash)?;
             let deleted = self.evict()?;
@@ -362,10 +378,14 @@ impl LoopStore {
         })();
         match result {
             Ok(deleted) => {
+                let compact = !deleted.is_empty();
                 self.index.execute_batch("COMMIT")?;
                 crate::fault("after_gc_commit");
                 for hash in deleted {
                     self.blobs.delete(&hash)?;
+                }
+                if compact {
+                    self.index.execute_batch("PRAGMA wal_checkpoint(TRUNCATE); VACUUM;")?;
                 }
             }
             Err(error) => {
@@ -388,21 +408,22 @@ impl LoopStore {
         // WAL is short-lived and truncated on successful command completion.
         let pages: u64 = self
             .index
-            .query_row("PRAGMA page_count", [], |r| r.get(0))?;
-        let page_size: u64 = self.index.query_row("PRAGMA page_size", [], |r| r.get(0))?;
+            .query_row("PRAGMA page_count", [], |r| sql_size(r,0))?;
+        let free: u64 = self.index.query_row("PRAGMA freelist_count", [], |r| sql_size(r,0))?;
+        let page_size: u64 = self.index.query_row("PRAGMA page_size", [], |r| sql_size(r,0))?;
         let other: u64 = ["index.sqlite3-shm", "lock", "log", "config.toml"]
             .iter()
             .filter_map(|p| fs::metadata(self.repo.store.join(p)).ok())
             .map(|m| m.len())
             .sum();
-        Ok(pages * page_size + other)
+        Ok(pages.saturating_sub(free) * page_size + other)
     }
 
     pub fn bytes(&self) -> Result<u64> {
         let blobs: u64 = self.index.query_row(
             "SELECT CAST(value AS INTEGER) FROM meta WHERE key='blob_bytes'",
             [],
-            |r| r.get(0),
+            |r| sql_size(r,0),
         )?;
         Ok(blobs + self.metadata_bytes()?)
     }
@@ -412,7 +433,7 @@ impl LoopStore {
         if self.bytes()? <= self.config.store_cap_bytes {
             return Ok(garbage);
         }
-        let target = self.config.store_cap_bytes * 9 / 10;
+        let target = (self.config.store_cap_bytes as u128 * 9 / 10) as u64;
         while self.bytes()? > target {
             let oldest = self
                 .index
@@ -431,7 +452,7 @@ impl LoopStore {
                 [&hash],
                 |r| r.get::<_, bool>(0),
             )? {
-                let removed: u64 = self.index.query_row(
+                let removed: i64 = self.index.query_row(
                     "SELECT stored_size FROM blobs WHERE hash=?1",
                     [&hash],
                     |r| r.get(0),
@@ -451,6 +472,11 @@ impl LoopStore {
 
     /// Commit reference deletion before removing files; crashes leave only orphans.
     pub fn gc(&mut self) -> Result<()> {
+        // These are disposable accelerators, not history. Reclaim them before
+        // evicting content when metadata itself is putting pressure on the cap.
+        if self.bytes()? > self.config.store_cap_bytes {
+            self.index.execute_batch("DELETE FROM stat_cache; DELETE FROM tracked_cache; PRAGMA wal_checkpoint(TRUNCATE); VACUUM;")?;
+        }
         self.index.execute_batch("BEGIN IMMEDIATE")?;
         let garbage = match self.evict() {
             Ok(g) => g,

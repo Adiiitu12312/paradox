@@ -44,6 +44,9 @@ pub fn atomic_write(path: &Path, bytes: &[u8]) -> Result<()> {
     let mut temp = tempfile::Builder::new()
         .prefix(".pending-")
         .tempfile_in(parent)?;
+    if let Ok(metadata) = fs::metadata(path) {
+        temp.as_file().set_permissions(metadata.permissions())?;
+    }
     let middle = bytes.len() / 2;
     temp.write_all(&bytes[..middle])?;
     crate::fault("during_blob_write");
@@ -104,7 +107,7 @@ impl BlobStore for LocalStore {
         reject_link(&path)?;
         let mut bytes = Vec::new();
         zstd::stream::read::Decoder::new(File::open(path)?)?
-            .take(self.size_limit + 1)
+            .take(self.size_limit.saturating_add(1))
             .read_to_end(&mut bytes)?;
         ensure!(
             bytes.len() as u64 <= self.size_limit,

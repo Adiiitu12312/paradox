@@ -66,8 +66,8 @@ fn capture(args: &[OsString], index: usize) {
 #[command(
     name = "paradox",
     disable_version_flag = true,
-    about = "Git with local per-file loops (M1 development build)",
-    after_help = "Everything else is Git: original arguments, terminal I/O and exit status pass through.\n\nPlanned additions (not available in M1):\n  loop, loops, compare, rewind, timeline, pin, unpin, track, untrack, ui\n  commit   Auto-stage then commit (M4)\n  init     Set up Git and automatic loop capture (M4)\n\nUse `paradox git <args>` to force pure Git, including commit and init.\nUse `paradox git --help` for Git help. Do not alias git yet."
+    about = "Git with local per-file loops (M2 development build)",
+    after_help = "Everything else is Git: original arguments, terminal I/O and exit status pass through.\n\nAvailable additions:\n  loop [file...]   Save tracked file loops; --gc repairs/cleans storage; --stats reports usage\n\nPlanned additions:\n  loops, compare, rewind, timeline, pin, unpin, track, untrack, ui\n  commit   Auto-stage then commit (M4)\n  init     Set up Git and automatic loop capture (M4)\n\nUse `paradox git <args>` to force pure Git, including commit and init.\nUse `paradox git --help` for Git help. Do not alias git yet."
 )]
 struct Help {}
 
@@ -88,7 +88,7 @@ fn main() {
         }
         Route::Owned { index } | Route::FileCommit { index, .. } => {
             eprintln!(
-                "paradox: '{}' is not available in M1; see paradox --help",
+                "paradox: '{}' is not available in M2; see paradox --help",
                 args[index].to_string_lossy()
             );
             std::process::exit(2);
