@@ -114,12 +114,18 @@ fn closed_comment_messages_are_saved_whole_and_become_stale() {
         assert_eq!(store.capture(&[PathBuf::from(path)]).unwrap().saved, 1);
         let loops = store.loops(path).unwrap();
         assert!(!loops[0].auto_label);
-        assert_eq!(store.blobs.get(&loops[0].blob_hash).unwrap(), bytes.as_bytes());
+        assert_eq!(
+            store.blobs.get(&loops[0].blob_hash).unwrap(),
+            bytes.as_bytes()
+        );
         let changed = format!("{line}\r\nsecond changed\r\n");
         fs::write(temp.path().join(path), &changed).unwrap();
         assert_eq!(store.capture(&[PathBuf::from(path)]).unwrap().saved, 1);
         assert!(store.loops(path).unwrap()[0].auto_label);
-        assert_eq!(fs::read(temp.path().join(path)).unwrap(), changed.as_bytes());
+        assert_eq!(
+            fs::read(temp.path().join(path)).unwrap(),
+            changed.as_bytes()
+        );
     }
 }
 
@@ -186,6 +192,24 @@ fn scan_only_captures_dirty_tracked_files_and_no_commits_is_supported() {
     let mut store = open(unborn.path());
     assert_eq!(save(&mut store).saved, 1);
     assert!(store.loops("file.ts").unwrap()[0].head_sha.is_empty());
+}
+
+#[test]
+fn large_scan_keeps_baseline_and_detects_changes_after_warmup() {
+    let temp = fixture();
+    for n in 0..600 {
+        fs::write(temp.path().join(format!("tracked-{n}.ts")), b"base\n").unwrap();
+    }
+    git(temp.path(), &["add", "-A"]);
+    git(temp.path(), &["commit", "-qm", "tracked scan fixture"]);
+    let mut store = open(temp.path());
+    assert_eq!(store.capture(&[]).unwrap().saved, 0);
+    assert_eq!(store.capture(&[]).unwrap().hashed, 0);
+    fs::write(temp.path().join("tracked-599.ts"), b"//> last worker\nchanged\n").unwrap();
+    let report = store.capture(&[]).unwrap();
+    assert_eq!((report.saved, report.hashed), (1, 1));
+    assert_eq!(store.loops("tracked-599.ts").unwrap()[0].message, "last worker");
+    assert_eq!(store.capture(&[]).unwrap().hashed, 0);
 }
 
 #[test]

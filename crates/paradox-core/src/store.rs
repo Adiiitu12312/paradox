@@ -258,10 +258,10 @@ impl LoopStore {
             eprintln!("capture profile: tracked {:?}", started.elapsed());
         }
         let all = inputs.is_empty();
-        let dirty = if all { Some(self.repo.dirty()?) } else { None };
-        if profile {
-            eprintln!("capture profile: dirty {:?}", started.elapsed());
-        }
+        // Only a stat-changed file without a prior captured hash needs Git's
+        // dirty set to distinguish its HEAD baseline. Warm scans avoid a second
+        // full filesystem walk by Git.
+        let mut dirty = None;
         let cache_map: Option<HashMap<String, (i64, u64, String)>> = if all {
             Some(
                 self.index
@@ -276,8 +276,16 @@ impl LoopStore {
         } else {
             None
         };
+        let metadata = if all {
+            self.repo.scan_metadata(&tracked)?
+        } else {
+            tracked.iter().map(|path| self.repo.regular_file_cached(path, &mut self.checked_dirs)).collect()
+        };
+        if profile {
+            eprintln!("capture profile: metadata {:?}", started.elapsed());
+        }
         let mut report = CaptureReport::default();
-        for path in tracked {
+        for (path, meta) in tracked.into_iter().zip(metadata) {
             let cache = match &cache_map {
                 Some(map) => map.get(&path).cloned(),
                 None => self.cache(&path)?,
@@ -285,8 +293,10 @@ impl LoopStore {
             match self.capture_one(
                 &path,
                 if all { "scan" } else { "save" },
-                dirty.as_ref(),
+                all,
+                &mut dirty,
                 cache,
+                meta,
             ) {
                 Ok((saved, hashed, skipped)) => {
                     report.saved += usize::from(saved);
@@ -331,16 +341,15 @@ impl LoopStore {
         &mut self,
         path: &str,
         kind: &str,
-        dirty: Option<&HashSet<String>>,
+        all: bool,
+        dirty: &mut Option<HashSet<String>>,
         cache: Option<(i64, u64, String)>,
+        meta: Result<Option<fs::Metadata>>,
     ) -> Result<(bool, bool, bool)> {
         if self.denied(path) {
             return Ok((false, false, true));
         }
-        let Some(meta) = self
-            .repo
-            .regular_file_cached(path, &mut self.checked_dirs)?
-        else {
+        let Some(meta) = meta? else {
             return Ok((false, false, true));
         };
         if meta.len() > self.config.size_limit_bytes {
@@ -350,11 +359,14 @@ impl LoopStore {
         if cache.as_ref().is_some_and(|c| (c.0, c.1) == state) {
             return Ok((false, false, false));
         }
-        if dirty.is_some_and(|set| !set.contains(path))
-            && cache.as_ref().is_none_or(|c| c.2.is_empty())
-        {
-            self.pending_stats.push((path.into(), state));
-            return Ok((false, false, false));
+        if all && cache.as_ref().is_none_or(|c| c.2.is_empty()) {
+            if dirty.is_none() {
+                *dirty = Some(self.repo.dirty()?);
+            }
+            if dirty.as_ref().is_some_and(|set| !set.contains(path)) {
+                self.pending_stats.push((path.into(), state));
+                return Ok((false, false, false));
+            }
         }
         let mut bytes = Vec::new();
         File::open(self.repo.root.join(path))?
