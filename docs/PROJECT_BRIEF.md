@@ -227,9 +227,10 @@ dispatcher and deletion rules above supersede their earlier versions.
 
 S — PENDING: future cloud-system discovery and brainstorming. The owner has
 mentioned Meta's EdenFS/Sapling and a Claude-related version-control system as
-references to investigate. Do not research this before M7 is accepted and do
-not build it now. The system identity, scope and architecture are unconfirmed;
-decide them with the owner in the later brainstorming phase.
+references to investigate. The bounded lookup performed after M7 acceptance
+identified Anthropic's Scion; see docs/S-REFERENCES.md for the primary source.
+Do not build it now. Scope and architecture remain unconfirmed; decide them
+with the owner in the later brainstorming phase. S remains pending.
 
 For the rest of development, when all functional tests pass and a performance
 or memory gate misses by under 10%, document the exception, set a realistic
