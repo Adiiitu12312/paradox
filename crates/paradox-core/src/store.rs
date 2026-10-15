@@ -197,9 +197,10 @@ impl LoopStore {
             .map(|p| self.repo.relative(p))
             .collect::<Result<Vec<_>>>()?;
         let signature = self.repo.index_signature();
-        let cached = !selected.is_empty() && signature.as_ref().is_some_and(|signature| {
-            selected.iter().all(|path| {
-                self.index
+        let cached = !selected.is_empty()
+            && signature.as_ref().is_some_and(|signature| {
+                selected.iter().all(|path| {
+                    self.index
                     .query_row(
                         "SELECT fingerprint=?3 FROM tracked_cache WHERE worktree=?1 AND path=?2",
                         params![self.repo.worktree, path, signature],
@@ -209,8 +210,8 @@ impl LoopStore {
                     .ok()
                     .flatten()
                     == Some(true)
-            })
-        });
+                })
+            });
         let mut tracked: Vec<_> = if cached {
             selected.clone()
         } else {
