@@ -262,11 +262,6 @@ extern "C" fn release_context(info: *const libc::c_void) {
     }
 }
 
-extern "C" {
-    /// Indicates whether the run loop is waiting for an event.
-    fn CFRunLoopIsWaiting(runloop: cf::CFRunLoopRef) -> cf::Boolean;
-}
-
 struct FsEventPathsMut<'a>(&'a mut FsEventWatcher);
 impl<'a> FsEventPathsMut<'a> {
     fn new(watcher: &'a mut FsEventWatcher) -> Self {
@@ -336,7 +331,7 @@ impl FsEventWatcher {
             unsafe {
                 let runloop = runloop as *mut raw::c_void;
 
-                while CFRunLoopIsWaiting(runloop) == 0 {
+                while cf::CFRunLoopIsWaiting(runloop) == 0 {
                     thread::yield_now();
                 }
 

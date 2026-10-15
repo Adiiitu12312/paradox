@@ -69,9 +69,11 @@ jobs:
       - name: Test candidate native symbol tables, DATA access and timezone/DST behavior
         if: ${{ !cancelled() }}
         run: |
+          failed=0
           for package in fsevent-sys notify iana-time-zone; do
-            cargo test --manifest-path "vendor/$package/Cargo.toml" --lib --config "$PWD/framework-diagnostics/lazy-patches.toml" -- --nocapture
+            if ! cargo test --manifest-path "vendor/$package/Cargo.toml" --lib --config "$PWD/framework-diagnostics/lazy-patches.toml" -- --nocapture; then failed=1; fi
           done
+          exit "$failed"
       - name: Build lazy candidate with a runner-only Cargo patch
         if: ${{ !cancelled() }}
         run: |

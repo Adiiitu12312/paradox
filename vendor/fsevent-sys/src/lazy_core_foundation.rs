@@ -1,26 +1,66 @@
 // Diagnostic-only late-bound CoreFoundation API. Upstream ABI/types remain in
 // core_foundation.rs; references to exported DATA use their real native storage.
 use super::*;
-use std::ffi::{CStr, c_void};
+use std::ffi::{c_void, CStr};
 use std::sync::OnceLock;
 const FRAMEWORK: &[u8] = b"/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation\0";
 fn loader_error(context: &str) -> String {
     let error = unsafe { libc::dlerror() };
-    if error.is_null() { context.to_owned() }
-    else { format!("{}: {}", context, unsafe { CStr::from_ptr(error) }.to_string_lossy()) }
+    if error.is_null() {
+        context.to_owned()
+    } else {
+        format!(
+            "{}: {}",
+            context,
+            unsafe { CStr::from_ptr(error) }.to_string_lossy()
+        )
+    }
 }
 unsafe fn symbol(handle: *mut c_void, name: &'static [u8]) -> Result<*mut c_void, String> {
-    unsafe { libc::dlerror(); }
+    unsafe {
+        libc::dlerror();
+    }
     let address = unsafe { libc::dlsym(handle, name.as_ptr().cast()) };
-    if address.is_null() { Err(loader_error(&format!("CoreFoundation symbol {} unavailable", String::from_utf8_lossy(&name[..name.len()-1])))) }
-    else { Ok(address) }
+    if address.is_null() {
+        Err(loader_error(&format!(
+            "CoreFoundation symbol {} unavailable",
+            String::from_utf8_lossy(&name[..name.len() - 1])
+        )))
+    } else {
+        Ok(address)
+    }
 }
-trait Unavailable { fn unavailable() -> Self; }
-impl Unavailable for () { fn unavailable() {} }
-impl Unavailable for bool { fn unavailable() -> Self { false } }
-impl Unavailable for i64 { fn unavailable() -> Self { 0 } }
-impl<T> Unavailable for *mut T { fn unavailable() -> Self { std::ptr::null_mut() } }
-impl<T> Unavailable for *const T { fn unavailable() -> Self { std::ptr::null() } }
+trait Unavailable {
+    fn unavailable() -> Self;
+}
+impl Unavailable for () {
+    fn unavailable() {}
+}
+impl Unavailable for bool {
+    fn unavailable() -> Self {
+        false
+    }
+}
+impl Unavailable for i64 {
+    fn unavailable() -> Self {
+        0
+    }
+}
+impl Unavailable for u8 {
+    fn unavailable() -> Self {
+        0
+    }
+}
+impl<T> Unavailable for *mut T {
+    fn unavailable() -> Self {
+        std::ptr::null_mut()
+    }
+}
+impl<T> Unavailable for *const T {
+    fn unavailable() -> Self {
+        std::ptr::null()
+    }
+}
 macro_rules! lazy_api {
     ($(fn $name:ident($($argument:ident: $kind:ty),* $(,)?) $(-> $result:ty)?;)+) => {
         #[allow(non_snake_case)]
@@ -67,6 +107,7 @@ lazy_api! {
     fn CFRunLoopRun();
     fn CFRunLoopStop(run_loop: CFRunLoopRef);
     fn CFRunLoopGetCurrent() -> CFRunLoopRef;
+    fn CFRunLoopIsWaiting(run_loop: CFRunLoopRef) -> Boolean;
 
     fn CFArrayCreateMutable(
         allocator: CFRef,
@@ -152,21 +193,38 @@ mod tests {
     #[test]
     fn complete_table_native_data_and_string_roundtrip() {
         ensure_loaded().unwrap();
-        let api=API.get().unwrap().as_ref().unwrap();
+        let api = API.get().unwrap().as_ref().unwrap();
         assert_eq!(type_array_callbacks() as usize, api.type_array_callbacks);
         assert!(!run_loop_default_mode().is_null());
-        assert!(unsafe { symbol(api._handle as *mut c_void,b"ParadoxMissingCFSymbol\0") }.is_err());
+        let run_loop = unsafe { CFRunLoopGetCurrent() };
+        assert!(!run_loop.is_null());
+        assert!(unsafe { CFRunLoopIsWaiting(run_loop) } <= 1);
+        assert!(
+            unsafe { symbol(api._handle as *mut c_void, b"ParadoxMissingCFSymbol\0") }.is_err()
+        );
         unsafe {
-            let array=CFArrayCreateMutable(kCFAllocatorDefault,0,type_array_callbacks());
+            let array = CFArrayCreateMutable(kCFAllocatorDefault, 0, type_array_callbacks());
             assert!(!array.is_null());
-            let value=CFStringCreateWithCString(kCFAllocatorDefault,b"lazy native CF\0".as_ptr().cast(),kCFStringEncodingUTF8);
+            let value = CFStringCreateWithCString(
+                kCFAllocatorDefault,
+                b"lazy native CF\0".as_ptr().cast(),
+                kCFStringEncodingUTF8,
+            );
             assert!(!value.is_null());
-            CFArrayAppendValue(array,value);
-            assert_eq!(CFArrayGetCount(array),1);
-            assert_eq!(CFArrayGetValueAtIndex(array,0),value);
-            let mut output=[0_i8;64];
-            assert!(CFStringGetCString(value,output.as_mut_ptr(),64,kCFStringEncodingUTF8));
-            assert_eq!(CStr::from_ptr(output.as_ptr()).to_bytes(),b"lazy native CF");
+            CFArrayAppendValue(array, value);
+            assert_eq!(CFArrayGetCount(array), 1);
+            assert_eq!(CFArrayGetValueAtIndex(array, 0), value);
+            let mut output = [0_i8; 64];
+            assert!(CFStringGetCString(
+                value,
+                output.as_mut_ptr(),
+                64,
+                kCFStringEncodingUTF8
+            ));
+            assert_eq!(
+                CStr::from_ptr(output.as_ptr()).to_bytes(),
+                b"lazy native CF"
+            );
             CFRelease(value);
             CFRelease(array);
         }

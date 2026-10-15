@@ -34,8 +34,8 @@ fn get_timezone() -> Option<String> {
 mod system_time_zone {
     //! create a safe wrapper around `CFTimeZoneRef`
 
-    use core_foundation_sys::base::CFTypeRef;
     use super::lazy::{CFRelease, CFTimeZoneCopySystem, CFTimeZoneGetName, CFTimeZoneResetSystem};
+    use core_foundation_sys::base::CFTypeRef;
     use core_foundation_sys::timezone::CFTimeZoneRef;
 
     pub(crate) struct SystemTimeZone(CFTimeZoneRef);
@@ -112,9 +112,7 @@ mod string_ref {
     use core::convert::TryInto;
 
     use core_foundation_sys::base::{Boolean, CFRange};
-    use core_foundation_sys::string::{
-        kCFStringEncodingUTF8, CFStringRef,
-    };
+    use core_foundation_sys::string::{kCFStringEncodingUTF8, CFStringRef};
 
     use super::lazy::{CFStringGetBytes, CFStringGetCStringPtr, CFStringGetLength};
 
@@ -202,8 +200,17 @@ mod lazy_timezone_tests {
         // identifier with the same rule database consumed by Chrono callers.
         let _: chrono_tz::Tz = converted.parse().unwrap();
         let zone = chrono_tz::America::New_York;
-        assert!(matches!(zone.with_ymd_and_hms(2026, 3, 8, 2, 30, 0), LocalResult::None));
-        assert!(matches!(zone.with_ymd_and_hms(2026, 11, 1, 1, 30, 0), LocalResult::Ambiguous(_, _)));
-        assert!(matches!(zone.with_ymd_and_hms(2026, 11, 1, 3, 30, 0), LocalResult::Single(_)));
+        assert!(matches!(
+            zone.with_ymd_and_hms(2026, 3, 8, 2, 30, 0),
+            LocalResult::None
+        ));
+        assert!(matches!(
+            zone.with_ymd_and_hms(2026, 11, 1, 1, 30, 0),
+            LocalResult::Ambiguous(_, _)
+        ));
+        assert!(matches!(
+            zone.with_ymd_and_hms(2026, 11, 1, 3, 30, 0),
+            LocalResult::Single(_)
+        ));
     }
 }

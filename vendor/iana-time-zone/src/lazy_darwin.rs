@@ -1,30 +1,69 @@
 // Diagnostic-only late-bound CoreFoundation calls. Keep core-foundation-sys
 // ABI types without its eager framework link; the timezone algorithm is intact.
 use core_foundation_sys::base::{Boolean, CFIndex, CFRange, CFTypeRef};
+use core_foundation_sys::string::{CFStringEncoding, CFStringRef};
 use core_foundation_sys::timezone::CFTimeZoneRef;
-use core_foundation_sys::string::{CFStringRef, CFStringEncoding};
+use std::ffi::{c_void, CStr};
 use std::os::raw::c_char;
-use std::ffi::{CStr, c_void};
 use std::sync::OnceLock;
 const FRAMEWORK: &[u8] = b"/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation\0";
 fn loader_error(context: &str) -> String {
     let error = unsafe { libc::dlerror() };
-    if error.is_null() { context.to_owned() }
-    else { format!("{}: {}", context, unsafe { CStr::from_ptr(error) }.to_string_lossy()) }
+    if error.is_null() {
+        context.to_owned()
+    } else {
+        format!(
+            "{}: {}",
+            context,
+            unsafe { CStr::from_ptr(error) }.to_string_lossy()
+        )
+    }
 }
 unsafe fn symbol(handle: *mut c_void, name: &'static [u8]) -> Result<*mut c_void, String> {
-    unsafe { libc::dlerror(); }
+    unsafe {
+        libc::dlerror();
+    }
     let address = unsafe { libc::dlsym(handle, name.as_ptr().cast()) };
-    if address.is_null() { Err(loader_error(&format!("CoreFoundation symbol {} unavailable", String::from_utf8_lossy(&name[..name.len()-1])))) }
-    else { Ok(address) }
+    if address.is_null() {
+        Err(loader_error(&format!(
+            "CoreFoundation symbol {} unavailable",
+            String::from_utf8_lossy(&name[..name.len() - 1])
+        )))
+    } else {
+        Ok(address)
+    }
 }
-trait Unavailable { fn unavailable() -> Self; }
-impl Unavailable for () { fn unavailable() {} }
-impl Unavailable for bool { fn unavailable() -> Self { false } }
-impl Unavailable for i64 { fn unavailable() -> Self { 0 } }
-impl Unavailable for isize { fn unavailable() -> Self { 0 } }
-impl<T> Unavailable for *mut T { fn unavailable() -> Self { std::ptr::null_mut() } }
-impl<T> Unavailable for *const T { fn unavailable() -> Self { std::ptr::null() } }
+trait Unavailable {
+    fn unavailable() -> Self;
+}
+impl Unavailable for () {
+    fn unavailable() {}
+}
+impl Unavailable for bool {
+    fn unavailable() -> Self {
+        false
+    }
+}
+impl Unavailable for i64 {
+    fn unavailable() -> Self {
+        0
+    }
+}
+impl Unavailable for isize {
+    fn unavailable() -> Self {
+        0
+    }
+}
+impl<T> Unavailable for *mut T {
+    fn unavailable() -> Self {
+        std::ptr::null_mut()
+    }
+}
+impl<T> Unavailable for *const T {
+    fn unavailable() -> Self {
+        std::ptr::null()
+    }
+}
 macro_rules! lazy_api {
     ($(fn $name:ident($($argument:ident: $kind:ty),* $(,)?) $(-> $result:ty)?;)+) => {
         #[allow(non_snake_case)]
@@ -74,7 +113,13 @@ mod tests {
     #[test]
     fn loads_all_timezone_symbols_and_reports_missing() {
         ensure_loaded().unwrap();
-        let api=API.get().unwrap().as_ref().unwrap();
-        assert!(unsafe { symbol(api._handle as *mut c_void,b"ParadoxMissingTimezoneSymbol\0") }.is_err());
+        let api = API.get().unwrap().as_ref().unwrap();
+        assert!(unsafe {
+            symbol(
+                api._handle as *mut c_void,
+                b"ParadoxMissingTimezoneSymbol\0",
+            )
+        }
+        .is_err());
     }
 }
