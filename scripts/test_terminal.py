@@ -9,6 +9,7 @@ import shlex
 import shutil
 import signal
 import subprocess
+import sys
 import tempfile
 import time
 
@@ -152,7 +153,17 @@ def main():
             assert result[0] == 0 and b"EDITOR_TTY_OK" in result[1], result
         print("PASS: interactive rebase launches the sequence editor with terminal input/output")
 
-        command = ["-c", "alias.signal-test=!printf 'SIGNAL_READY\\n'; exec sleep 30", "signal-test"]
+        # Announce readiness from the long-running child itself. Printing from
+        # the shell before exec races Ctrl+C against the child's startup.
+        signal_child = root / "signal_child.py"
+        signal_child.write_text(
+            "import time\nprint('SIGNAL_READY', flush=True)\ntime.sleep(30)\n"
+        )
+        child_command = (
+            shlex.quote(Path(sys.executable).as_posix()) + " "
+            + shlex.quote(signal_child.as_posix())
+        )
+        command = ["-c", "alias.signal-test=!" + child_command, "signal-test"]
         direct = terminal(git, command, root, env, interrupt=True)
         wrapped = terminal(binary, command, root, env, interrupt=True)
         # Git for Windows can return zero when its shell alias is interrupted.
