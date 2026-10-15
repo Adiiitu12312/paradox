@@ -81,9 +81,7 @@ pub fn status(repo: &Repo) -> Result<Option<Status>> {
             FileExt::unlock(&file)?;
             Ok(None)
         }
-        Err(error)
-            if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() =>
-        {
+        Err(error) if error.raw_os_error() == fs2::lock_contended_error().raw_os_error() => {
             Ok(Some(read_status(repo)?))
         }
         Err(error) => Err(error.into()),
@@ -409,9 +407,11 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
             // that has already settled. Only the two-second classification
             // lookahead is shared with the bulk policy; debounce is per file.
             if batch_due.is_some_and(|due| clock >= due) {
-                let eligible: HashSet<_> = pending.iter()
+                let eligible: HashSet<_> = pending
+                    .iter()
                     .filter(|(_, times)| bulk || clock >= file_due(times))
-                    .map(|(name, _)| name.clone()).collect();
+                    .map(|(name, _)| name.clone())
+                    .collect();
                 let mut selected = eligible.clone();
                 // Ignore rules may change without an index update.
                 if let Err(error) = remove_ignored(&repo, &mut selected) {
@@ -420,7 +420,13 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
                 }
                 let paths: Vec<_> = selected.iter().map(|name| repo.root.join(name)).collect();
                 if bulk {
-                    log_at(&repo.store, &format!("watch bulk operation: {} files; recording bulk change loops", paths.len()));
+                    log_at(
+                        &repo.store,
+                        &format!(
+                            "watch bulk operation: {} files; recording bulk change loops",
+                            paths.len()
+                        ),
+                    );
                 }
                 let result = if paths.is_empty() {
                     Ok(crate::store::CaptureReport::default())
@@ -433,8 +439,13 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
                     Ok(report) => state.loops_created += report.saved as u64,
                     Err(error) => log_at(&repo.store, &format!("watch capture: {error:#}")),
                 }
-                for name in eligible { pending.remove(&name); }
-                if bulk { recent.clear(); bulk = false; }
+                for name in eligible {
+                    pending.remove(&name);
+                }
+                if bulk {
+                    recent.clear();
+                    bulk = false;
+                }
                 if let Err(error) = persist_status(&repo, &state) {
                     log_at(&repo.store, &format!("watch status: {error:#}"));
                 }
@@ -482,9 +493,13 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
                         }
                         if let Some(name) = coverage.relative(path) {
                             let clock = Instant::now();
-                            pending.entry(name.clone()).and_modify(|times| times.1 = clock)
+                            pending
+                                .entry(name.clone())
+                                .and_modify(|times| times.1 = clock)
                                 .or_insert((clock, clock));
-                            recent.retain(|_, when| clock.duration_since(*when) <= Duration::from_secs(2));
+                            recent.retain(|_, when| {
+                                clock.duration_since(*when) <= Duration::from_secs(2)
+                            });
                             recent.insert(name, clock);
                             last_change = clock;
                             if recent.len() > 50 {
@@ -493,8 +508,32 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
                         }
                     }
                     if refresh {
-                        if let Err(error) = coverage.refresh(&repo, &mut watcher) {
-                            log_at(&repo.store, &format!("watch tracked refresh: {error:#}"));
+                        let previous = std::mem::take(&mut coverage.files);
+                        match coverage.refresh(&repo, &mut watcher) {
+                            Ok(()) => {
+                                // An edit can happen after git add/track but
+                                // before this control event is delivered and
+                                // its new directory watch is registered. Queue
+                                // only newly eligible paths after registration;
+                                // the ordinary settled capture reads their
+                                // latest state and shares the usual dedup.
+                                let clock = Instant::now();
+                                recent.retain(|_, when| {
+                                    clock.duration_since(*when) <= Duration::from_secs(2)
+                                });
+                                for name in coverage.files.difference(&previous) {
+                                    pending.entry(name.clone())
+                                        .and_modify(|times| times.1 = clock)
+                                        .or_insert((clock, clock));
+                                    recent.insert(name.clone(), clock);
+                                    last_change = clock;
+                                }
+                                if recent.len() > 50 { bulk = true; }
+                            }
+                            Err(error) => {
+                                coverage.files = previous;
+                                log_at(&repo.store, &format!("watch tracked refresh: {error:#}"));
+                            }
                         }
                         state.tracked_files = coverage.files.len();
                         if let Err(error) = persist_status(&repo, &state) {

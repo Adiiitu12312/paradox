@@ -253,9 +253,7 @@ fn tracked_refresh_and_rewind_suppression() {
     fs::create_dir(root.join("new-directory")).unwrap();
     fs::write(root.join("new-directory/added.ts"), "new base\n").unwrap();
     git(root, &["add", "new-directory/added.ts"]);
-    // Index refresh must itself detect the newly tracked file, even if its save
-    // raced watch registration. Subsequent edits must also be covered.
-    std::thread::sleep(Duration::from_millis(600));
+    // Save immediately: refresh must close the gap before native registration.
     fs::write(
         root.join("new-directory/added.ts"),
         "//> git add coverage\nadded\n",
@@ -275,7 +273,6 @@ fn tracked_refresh_and_rewind_suppression() {
     )
     .unwrap();
     px(root, &["track", "explicit-directory/tracked.ts"]);
-    std::thread::sleep(Duration::from_millis(600));
     fs::write(
         root.join("explicit-directory/tracked.ts"),
         "//> explicit coverage\ntracked\n",
@@ -366,7 +363,11 @@ fn parallel_capture_and_editor_burst_share_dedup_and_lock() {
         .unwrap();
         #[cfg(windows)]
         fs::remove_file(root.join("src/0.ts")).unwrap();
-        fs::rename(root.join("src/.editor-concurrent-temp"), root.join("src/0.ts")).unwrap();
+        fs::rename(
+            root.join("src/.editor-concurrent-temp"),
+            root.join("src/0.ts"),
+        )
+        .unwrap();
     }
     for mut child in children {
         assert!(child.wait().unwrap().success());
@@ -399,21 +400,31 @@ fn parallel_capture_and_editor_burst_share_dedup_and_lock() {
 
 #[test]
 fn settled_file_is_not_starved_by_other_files_continuing_to_change() {
-    let temp = fixture(2); let root = temp.path(); let mut watch = Session::start(root);
-    fs::write(root.join("src/0.ts"), "//> independently settled\nfinished\n").unwrap();
+    let temp = fixture(2);
+    let root = temp.path();
+    let mut watch = Session::start(root);
+    fs::write(
+        root.join("src/0.ts"),
+        "//> independently settled\nfinished\n",
+    )
+    .unwrap();
     let running = std::sync::atomic::AtomicBool::new(true);
     std::thread::scope(|scope| {
         let writer = scope.spawn(|| {
             let mut n = 0;
             while running.load(std::sync::atomic::Ordering::Relaxed) {
-                fs::write(root.join("src/1.ts"), format!("//> still editing\n{n}\n")).unwrap(); n += 1;
+                fs::write(root.join("src/1.ts"), format!("//> still editing\n{n}\n")).unwrap();
+                n += 1;
                 std::thread::sleep(Duration::from_millis(100));
             }
         });
         let until = Instant::now() + Duration::from_secs(4);
         let mut captured = false;
         while Instant::now() < until {
-            if !store(root).loops("src/0.ts").unwrap().is_empty() { captured = true; break; }
+            if !store(root).loops("src/0.ts").unwrap().is_empty() {
+                captured = true;
+                break;
+            }
             std::thread::sleep(Duration::from_millis(50));
         }
         running.store(false, std::sync::atomic::Ordering::Relaxed);
@@ -426,15 +437,29 @@ fn settled_file_is_not_starved_by_other_files_continuing_to_change() {
 
 #[test]
 fn many_changes_spread_outside_two_second_window_remain_ordinary_saves() {
-    let temp = fixture(51); let root = temp.path(); let mut watch = Session::start(root);
+    let temp = fixture(51);
+    let root = temp.path();
+    let mut watch = Session::start(root);
     for i in 0..51 {
-        fs::write(root.join(format!("src/{i}.ts")), "//> ordinary sequential save\nchanged\n").unwrap();
+        fs::write(
+            root.join(format!("src/{i}.ts")),
+            "//> ordinary sequential save\nchanged\n",
+        )
+        .unwrap();
         std::thread::sleep(Duration::from_millis(65));
     }
     wait_for(|| count(root) == 51);
     let store = store(root);
-    assert_eq!(store.index.query_row("SELECT COUNT(*) FROM loops WHERE kind='save'", [], |r| r.get::<_,i64>(0)).unwrap(), 51);
-    drop(store); watch.stop();
+    assert_eq!(
+        store
+            .index
+            .query_row("SELECT COUNT(*) FROM loops WHERE kind='save'", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        51
+    );
+    drop(store);
+    watch.stop();
 }
 
 #[test]
@@ -535,7 +560,12 @@ fn background_session_detaches_and_stops() {
     let _cleanup = Cleanup(root);
     let status = px(root, &["watch", "--status"]);
     assert!(status.starts_with("running pid="));
-    let pid: u32 = status.split_ascii_whitespace().find_map(|s| s.strip_prefix("pid=")).unwrap().parse().unwrap();
+    let pid: u32 = status
+        .split_ascii_whitespace()
+        .find_map(|s| s.strip_prefix("pid="))
+        .unwrap()
+        .parse()
+        .unwrap();
     fs::write(root.join("src/0.ts"), "//> detached save\nbackground\n").unwrap();
     wait_for(|| count(root) == 1);
     px(root, &["watch", "--stop"]);
@@ -545,11 +575,23 @@ fn background_session_detaches_and_stops() {
 
 fn process_exists(pid: u32) -> bool {
     #[cfg(unix)]
-    { Command::new("ps").args(["-p", &pid.to_string(), "-o", "comm="]).output().is_ok_and(|output| output.status.success() && !output.stdout.is_empty()) }
+    {
+        Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "comm="])
+            .output()
+            .is_ok_and(|output| output.status.success() && !output.stdout.is_empty())
+    }
     #[cfg(windows)]
     {
-        let output = Command::new("tasklist").args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"]).output().unwrap();
-        String::from_utf8_lossy(&output.stdout).lines().any(|line| line.split(',').nth(1).is_some_and(|value| value.trim_matches('"') == pid.to_string()))
+        let output = Command::new("tasklist")
+            .args(["/FI", &format!("PID eq {pid}"), "/NH", "/FO", "CSV"])
+            .output()
+            .unwrap();
+        String::from_utf8_lossy(&output.stdout).lines().any(|line| {
+            line.split(',')
+                .nth(1)
+                .is_some_and(|value| value.trim_matches('"') == pid.to_string())
+        })
     }
 }
 
