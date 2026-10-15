@@ -247,7 +247,15 @@ impl LoopStore {
     }
 
     fn commit_time(&self, commit: &str) -> Result<i64> {
-        let output = self.repo.git(&["show", "-s", "--format=%ct", commit])?;
+        let output = self.repo.git(&[
+            "show",
+            "-s",
+            "--no-show-signature",
+            "--no-notes",
+            "--no-decorate",
+            "--format=%ct",
+            commit,
+        ])?;
         let seconds = std::str::from_utf8(&output.stdout)?.trim().parse::<i64>()?;
         seconds
             .checked_mul(1000)
@@ -274,7 +282,14 @@ impl LoopStore {
             let previous = self.repo.previous_path(path, commit)?;
             if previous != path {
                 lookup = previous;
-                output = self.repo.git(&["--literal-pathspecs", "ls-tree", "-z", commit, "--", &lookup])?;
+                output = self.repo.git(&[
+                    "--literal-pathspecs",
+                    "ls-tree",
+                    "-z",
+                    commit,
+                    "--",
+                    &lookup,
+                ])?;
             }
         }
         let entry = output

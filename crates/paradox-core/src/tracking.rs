@@ -134,9 +134,13 @@ impl LoopStore {
         let selected = inputs
             .iter()
             .map(|path| {
-                if path == &self.repo.root || (path.as_os_str() == "." && self.repo.prefix.as_os_str().is_empty()) {
+                if path == &self.repo.root
+                    || (path.as_os_str() == "." && self.repo.prefix.as_os_str().is_empty())
+                {
                     Ok(".".to_string())
-                } else { self.repo.relative(path) }
+                } else {
+                    self.repo.relative(path)
+                }
             })
             .collect::<Result<Vec<_>>>()?;
         let mut list = self.repo.track_list()?;
@@ -149,9 +153,9 @@ impl LoopStore {
         let before = paths.len();
         if remove {
             paths.retain(|path| {
-                !selected
-                    .iter()
-                    .any(|input| input == "." || path == input || path.starts_with(&format!("{input}/")))
+                !selected.iter().any(|input| {
+                    input == "." || path == input || path.starts_with(&format!("{input}/"))
+                })
             });
         } else {
             // Git enumerates only explicitly selected paths and honors ignore
