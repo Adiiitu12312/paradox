@@ -79,13 +79,10 @@ Unknown and incomplete global options are delegated to Git for validation.
 Paradox. `paradox git <args>` removes only the `git` escape token and preserves
 preceding global options.
 
-These reserved commands return an explicit unavailable error in M1: `commit`,
-`init`, `ui`, `loop`, `loops`, `compare`, `rewind`, `timeline`, `pin`, `unpin`,
-`track`, `untrack`. They do not fall back to Git and imply that a safety feature
-has run. Use `paradox git commit` and `paradox git init` for pure Git until M4.
-Help requests for Git's `commit` and `init` still go to Git without doing setup.
-File-first commit routing currently recognizes explicit path syntax (a dot or
-path separator); its execution is reserved for M4.
+Commands reserved for future milestones return an explicit unavailable error.
+Use `paradox git commit` and `paradox git init` for pure Git behavior. Help
+requests for Git's `commit` and `init` still go to Git without doing setup.
+File-first commit routing recognizes explicit path syntax (a dot or path separator).
 
 ## Loop capture (M2)
 
@@ -111,8 +108,8 @@ Loop storage requires UTF-8 paths. Repository paths containing line breaks are
 refused because discovery output would be ambiguous; Git pass-through still
 preserves its original operating-system arguments.
 
-Commit-time marker stripping and automatic editor/AI hook setup arrive in M4;
-this development build does not install them. `watch` arrives in M4.5.
+M4 adds commit-time marker stripping and editor/AI hook setup through explicit
+`paradox init`. `watch` arrives in M4.5.
 
 ## History and rewind (M3)
 
@@ -220,7 +217,8 @@ marker alone does not disable retention. Other worktrees purge their own loops.
 All tests that execute Paradox create OS temporary repositories **outside** this
 project. They never invoke Paradox on this project or an existing user repository.
 Git fixtures disable global/system config and existing hooks, use fixed test-only
-identities and dates, and never contact remotes.
+identities and dates, and never contact external remotes. Hook push fixtures use
+disposable local bare repositories.
 
 ```text
 cargo fmt --all --check
@@ -244,7 +242,7 @@ costs. Atomic blob writes, fsync, SQLite `synchronous=FULL` and repository locki
 stay enabled. These measurements do not isolate the cost of Defender separately.
 [Capture baselines](benchmarks/capture.csv) record every OS and enforce the
 smaller of its limit and its observed median plus 50% and 1 ms scheduling variance.
-Baselines never increase automatically. M4's Run-on-Save configuration will use
+Baselines never increase automatically. M4's Run-on-Save configuration uses
 `isAsync: true`, so an editor save does not wait for capture.
 
 The release test measures 101 alternating pairs after warmup for both version and
@@ -253,7 +251,10 @@ regressions: the ceiling is the smaller of the OS limit and the recorded baselin
 plus 50% and 1 ms scheduling allowance. Point observations are recorded separately;
 the allowance avoids treating ordinary shared-runner jitter as a code regression.
 
-CI is configured for Windows, macOS and Linux. A local Windows test run is not
+CI uses Windows, Linux and the fixed macOS 15 ARM64 runner, with the same strict
+macOS limits and stored baselines. The [M4 report](docs/milestones/M4.md) retains
+failed measurements from the floating macOS runner and the fixed-host checks.
+A local Windows test run is not
 evidence that those remote jobs have run. Terminal interaction and signal delivery
 also need platform-specific verification; captured output tests alone cannot
 establish all interactive behavior.

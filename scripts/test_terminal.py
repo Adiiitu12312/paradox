@@ -1,8 +1,7 @@
-"""Exercise real terminal inheritance on Unix, only inside a fresh temp repo."""
+"""Exercise real terminal inheritance, only inside a fresh temp repo."""
 
 import argparse
 import errno
-import json
 import os
 from pathlib import Path
 import select
@@ -15,9 +14,11 @@ import tempfile
 import time
 
 
-def terminal(executable, arguments, cwd, env, interrupt=False):
+def terminal(executable, arguments, cwd, env, interrupt=False,
+             initial_input=b"", interrupt_ready=b"SIGNAL_READY"):
     if os.name == "nt":
-        return windows_terminal(executable, arguments, cwd, env, interrupt)
+        return windows_terminal(executable, arguments, cwd, env, interrupt,
+                                initial_input, interrupt_ready)
     import pty
 
     pid, fd = pty.fork()
@@ -29,6 +30,8 @@ def terminal(executable, arguments, cwd, env, interrupt=False):
     sent_interrupt = False
     deadline = time.monotonic() + 15
     try:
+        if initial_input:
+            os.write(fd, initial_input)
         while time.monotonic() < deadline:
             if select.select([fd], [], [], 0.05)[0]:
                 try:
@@ -38,7 +41,7 @@ def terminal(executable, arguments, cwd, env, interrupt=False):
                         raise
                     data = b""
                 output.extend(data)
-                if interrupt and b"SIGNAL_READY" in output and not sent_interrupt:
+                if interrupt and interrupt_ready in output and not sent_interrupt:
                     os.write(fd, b"\x03")
                     sent_interrupt = True
                 if not data:
@@ -58,7 +61,8 @@ def terminal(executable, arguments, cwd, env, interrupt=False):
         os.close(fd)
 
 
-def windows_terminal(executable, arguments, cwd, env, interrupt):
+def windows_terminal(executable, arguments, cwd, env, interrupt,
+                     initial_input, interrupt_ready):
     # This helper is installed only on GitHub's hosted Windows runner.
     from winpty import PtyProcess
 
@@ -68,13 +72,17 @@ def windows_terminal(executable, arguments, cwd, env, interrupt):
     interrupted_at = None
     deadline = time.monotonic() + 15
     try:
+        if initial_input:
+            # ConPTY receives terminal keystrokes; CR is the Enter key that
+            # completes a line in Windows console line-input mode.
+            process.write(initial_input.decode("utf-8"))
         while time.monotonic() < deadline:
             if select.select([process.fileobj], [], [], 0.05)[0]:
                 try:
                     output.extend(process.read(65536).encode("utf-8"))
                 except EOFError:
                     break
-                if interrupt and b"SIGNAL_READY" in output and not sent_interrupt:
+                if interrupt and interrupt_ready in output and not sent_interrupt:
                     process.sendintr()
                     sent_interrupt = True
                     interrupted_at = time.monotonic()
@@ -154,36 +162,47 @@ def main():
             assert result[0] == 0 and b"EDITOR_TTY_OK" in result[1], result
         print("PASS: interactive rebase launches the sequence editor with terminal input/output")
 
-        # Announce readiness from the long-running child itself. Printing from
-        # the shell before exec races Ctrl+C against the child's startup.
-        signal_child = root / "signal_child.py"
-        signal_child.write_text(
-            "import time\nprint('SIGNAL_READY', flush=True)\ntime.sleep(30)\n"
-        )
-        child_command = (
-            shlex.quote(Path(sys.executable).as_posix()) + " "
-            + shlex.quote(signal_child.as_posix())
-        )
-        command = ["-c", "alias.signal-test=!" + child_command, "signal-test"]
+        if os.name == "nt":
+            # Exercise Git itself, avoiding Python/shell-alias teardown races
+            # under ConPTY. A real object response proves Git has read console
+            # input and reached its long-running native batch loop.
+            head = subprocess.check_output(
+                [git, "rev-parse", "HEAD"], cwd=root, env=env, text=True
+            ).strip()
+            command = [
+                "cat-file",
+                "--batch=SIGNAL_READY %(objectname) %(objecttype) %(objectsize)",
+            ]
+            signal_options = {
+                "initial_input": b"HEAD\r",
+                "interrupt_ready": f"SIGNAL_READY {head} commit ".encode("ascii"),
+            }
+        else:
+            # Announce readiness from the long-running child itself. Printing
+            # before exec races Ctrl+C against the child's startup.
+            signal_child = root / "signal_child.py"
+            signal_child.write_text(
+                "import time\nprint('SIGNAL_READY', flush=True)\ntime.sleep(30)\n"
+            )
+            child_command = (
+                shlex.quote(Path(sys.executable).as_posix()) + " "
+                + shlex.quote(signal_child.as_posix())
+            )
+            command = ["-c", "alias.signal-test=!" + child_command, "signal-test"]
+            signal_options = {}
         results = []
         for name, executable in [("direct", git), ("wrapped", binary)]:
-            trace = root / f"signal-{name}.json"
-            signal_env = {**env, "GIT_TRACE2_EVENT": trace.as_posix()}
-            result = terminal(executable, command, root, signal_env, interrupt=True)
+            result = terminal(executable, command, root, env, interrupt=True,
+                              **signal_options)
             if os.name == "nt":
-                # Windows shell-alias interrupt statuses vary between runs.
-                # Compare each result with its own Git child's exit instead of
-                # assuming two executions will choose the same status.
-                # Exit events: https://git-scm.com/docs/api-trace2
-                events = [json.loads(line) for line in trace.read_text().splitlines()]
-                sid = next(event["sid"] for event in events if event["event"] == "start")
-                codes = [event["code"] for event in events
-                         if event["sid"] == sid and event["event"] in ("exit", "atexit")]
-                assert codes, (name, result, events)
-                assert result[0] & 0xffffffff == codes[-1] & 0xffffffff, (name, result, codes)
+                assert result[0] is not None and result[0] != 0, (name, result)
+                code = result[0] & 0xffffffff
+                # STATUS_CONTROL_C_EXIT is a normal console interruption.
+                # Access violations and other NT exception exits are failures,
+                # even if Git wrote a successful Trace2 event before crashing.
+                assert code < 0x80000000 or code == 0xc000013a, (name, result)
             results.append(result)
-        if os.name != "nt":
-            assert results[0][0] == results[1][0], results
+        assert results[0][0] == results[1][0], results
         print(f"PASS: prompt Ctrl+C exit and Git status forwarding ({results[0][0]}, {results[1][0]})")
 
         for text in ["//> first loop\nfirst loop body\n", "//> second loop\nsecond loop body\n"]:
