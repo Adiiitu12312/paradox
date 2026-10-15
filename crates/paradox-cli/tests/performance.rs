@@ -119,11 +119,13 @@ fn passthrough_overhead_within_stored_baseline() {
                 .iter()
                 .zip(&wrapped)
                 .zip(&differences)
-                .map(|((a, b), difference)| serde_json::json!({
-                    "git_ns": a.as_nanos() as u64,
-                    "paradox_ns": b.as_nanos() as u64,
-                    "difference_ns": *difference as i64,
-                }))
+                .map(|((a, b), difference)| {
+                    serde_json::json!({
+                        "git_ns": a.as_nanos() as u64,
+                        "paradox_ns": b.as_nanos() as u64,
+                        "difference_ns": *difference as i64,
+                    })
+                })
                 .collect::<Vec<_>>();
             let git = median(&mut direct);
             let paradox = median(&mut wrapped);
