@@ -5,6 +5,7 @@ use clap::Parser;
 use paradox_cli::dispatch::{Route, force_git_args, route};
 
 mod commands;
+mod workflow;
 
 #[derive(Parser)]
 #[command(name = "paradox loop", about = "Save loops of tracked files and exit")]
@@ -14,6 +15,8 @@ struct LoopArgs {
     gc: bool,
     #[arg(long)]
     stats: bool,
+    #[arg(long, hide = true, conflicts_with_all = ["files", "gc", "stats"])]
+    hook: Option<String>,
 }
 
 fn capture(args: &[OsString], index: usize) {
@@ -34,6 +37,13 @@ fn capture(args: &[OsString], index: usize) {
             return;
         }
     };
+    if let Some(event) = &options.hook {
+        if let Err(error) = workflow::hook(event, &args[..index]) {
+            paradox_core::store::log_at(&repo.store, &format!("{event}: {error:#}"));
+            if event == "pre-commit" { eprintln!("paradox: staged marker stripping failed: {error:#}"); std::process::exit(1); }
+        }
+        return;
+    }
     let log_root = repo.store.clone();
     if profile {
         eprintln!("capture profile: discovery {:?}", started.elapsed());
@@ -47,6 +57,7 @@ fn capture(args: &[OsString], index: usize) {
             let _ = store.capture(&options.files)?;
         }
         if options.gc {
+            store.purge()?;
             store.gc()?;
         }
         if options.stats {
@@ -102,7 +113,12 @@ fn main() {
         Route::Owned { index } if commands::available(&args[index]) => {
             Ok(commands::run(&args, index))
         }
-        Route::Owned { index } | Route::FileCommit { index, .. } => {
+        Route::Owned { index } if args[index] == "init" || args[index] == "commit" => {
+            let result = if args[index] == "init" { workflow::init(&args, index) } else { workflow::commit(&args, index, None) };
+            Ok(workflow_result(result))
+        }
+        Route::FileCommit { index, file } => Ok(workflow_result(workflow::commit(&args, index, Some(file)))),
+        Route::Owned { index } => {
             eprintln!(
                 "paradox: '{}' is not available in M3; see paradox --help",
                 args[index].to_string_lossy()
@@ -121,4 +137,8 @@ fn main() {
             std::process::exit(127);
         }
     }
+}
+
+fn workflow_result(result: anyhow::Result<i32>) -> i32 {
+    match result { Ok(code) => code, Err(error) => { eprintln!("paradox: {error:#}"); 1 } }
 }

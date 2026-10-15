@@ -66,6 +66,17 @@ pub fn label(path: &Path, current: &[u8], previous: &[u8]) -> (String, bool) {
     (format!("+{added} -{removed}"), true)
 }
 
+/// Byte range of the complete permitted marker line, including its newline.
+pub fn marker_range(path: &Path, bytes: &[u8]) -> Option<std::ops::Range<usize>> {
+    marker(path, bytes)?;
+    let first_end = bytes.iter().position(|b| *b == b'\n').map_or(bytes.len(), |i| i + 1);
+    let first = bytes[..first_end].strip_suffix(b"\n").unwrap_or(&bytes[..first_end]);
+    let first = first.strip_suffix(b"\r").unwrap_or(first);
+    let start = if first.starts_with(b"#!") || first == b"<?php" { first_end } else { 0 };
+    let end = bytes[start..].iter().position(|b| *b == b'\n').map_or(bytes.len(), |i| start + i + 1);
+    Some(start..end)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

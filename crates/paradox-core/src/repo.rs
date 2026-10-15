@@ -106,7 +106,7 @@ impl Repo {
         })
     }
 
-    pub fn git(&self, args: &[&str]) -> Result<Output> {
+    pub fn command(&self, args: &[&str]) -> std::process::Command {
         // -C was already applied during discovery. Run relative to the root and
         // retain other Git options (including -c) using a final absolute -C.
         let mut all = self.globals.clone();
@@ -114,7 +114,11 @@ impl Repo {
         all.push(format!("--git-dir={}", self.git_dir.display()).into());
         all.push(format!("--work-tree={}", self.root.display()).into());
         all.extend(args.iter().map(OsString::from));
-        let result = crate::git::command(&all).output()?;
+        crate::git::command(&all)
+    }
+
+    pub fn git(&self, args: &[&str]) -> Result<Output> {
+        let result = self.command(args).output()?;
         ensure!(
             result.status.success(),
             "Git operation failed: {}",
