@@ -44,7 +44,10 @@ fn common_store_needs_no_exclusion_and_legacy_migration_keeps_ids_and_bytes() {
     let id = {
         let mut store = LoopStore::open(repo(root)).unwrap();
         store.capture(&[]).unwrap();
-        assert_eq!(store.repo.store, expected);
+        assert_eq!(
+            fs::canonicalize(&store.repo.store).unwrap(),
+            fs::canonicalize(&expected).unwrap()
+        );
         store
             .index
             .execute("UPDATE schema_version SET version=2", [])

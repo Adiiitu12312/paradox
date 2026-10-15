@@ -40,7 +40,7 @@ jobs:
         run: python -m unittest discover -s scripts -p test_passthrough_ci.py
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
         if: always()
-      - run: cargo test --workspace --locked --features paradox-cli/fault-injection
+      - run: cargo test --workspace --locked --features paradox-cli/fault-injection --no-fail-fast
       - name: Record contended save handoff timing and enforce stored OS baseline
         run: cargo test --locked -p paradox-core --test pending -- --nocapture
       - run: cargo build --release --locked -p paradox-cli
