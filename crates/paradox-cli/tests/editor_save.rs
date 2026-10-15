@@ -79,7 +79,7 @@ fn configured_editor_command_records_a_save_and_exits() {
         paradox_core::repo::Repo::discover(&["-C".into(), root.as_os_str().to_owned()]).unwrap();
     let s = paradox_core::store::LoopStore::open(repo).unwrap();
     let loops = s.loops("file with spaces.ts").unwrap();
-    assert_eq!(loops.len(), 1);
+    assert_eq!(loops.len(), 1, "capture log: {:?}", fs::read_to_string(s.repo.store.join("log")));
     assert_eq!(loops[0].message, "editor saved");
     assert_eq!(loops[0].kind, "save");
 }

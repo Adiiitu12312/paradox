@@ -22,6 +22,21 @@ pub fn executable(path: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Follow existing hook links, preserving native Git's executable eligibility.
+pub fn runnable(path: &Path) -> bool {
+    let Ok(meta) = fs::metadata(path) else { return false; };
+    if !meta.is_file() { return false; }
+    #[cfg(unix)] {
+        use std::os::unix::fs::PermissionsExt;
+        meta.permissions().mode() & 0o111 != 0
+    }
+    #[cfg(windows)] {
+        use std::io::Read;
+        let mut prefix = [0;2];
+        fs::File::open(path).and_then(|mut f| f.read_exact(&mut prefix)).is_ok() && matches!(&prefix, b"#!" | b"MZ")
+    }
+}
+
 pub fn hooks_dir(repo: &Repo) -> Result<PathBuf> {
     let output = repo.git(&["rev-parse", "--path-format=absolute", "--git-path", "hooks"])?;
     Ok(PathBuf::from(
@@ -64,6 +79,8 @@ struct Hook {
     path: PathBuf,
     backup: Option<PathBuf>,
     script: String,
+    #[serde(default)]
+    owners: Vec<String>,
 }
 
 fn manifest_path(repo: &Repo) -> PathBuf {
@@ -74,6 +91,9 @@ fn save_manifest(repo: &Repo, manifest: &Manifest) -> Result<()> {
 }
 fn load_manifest(repo: &Repo) -> Result<Manifest> {
     let path = manifest_path(repo);
+    load_manifest_at(&path)
+}
+fn load_manifest_at(path: &Path) -> Result<Manifest> {
     reject_link(&path)?;
     if path.exists() {
         Ok(serde_json::from_slice(&fs::read(path)?)?)
@@ -176,21 +196,30 @@ pub fn install(repo: Repo, exe: &Path) -> Result<()> {
     let store = LoopStore::open(repo)?;
     let repo = &store.repo;
     let mut manifest = load_manifest(repo)?;
+    let hook_manifest_path = repo.store.join("setup-hooks.json");
+    let mut hook_manifest = load_manifest_at(&hook_manifest_path)?;
     let hooks = hooks_dir(repo)?;
     reject_link(&hooks)?;
     directory(&hooks)?;
     for event in ["pre-commit", "post-commit"] {
         let path = hooks.join(event);
-        if let Some(record) = manifest.hooks.iter().find(|r| r.path == path) {
+        if let Some(record) = hook_manifest.hooks.iter_mut().find(|r| r.path == path) {
             ensure!(
                 fs::read_to_string(&path).is_ok_and(|s| s == record.script),
                 "managed hook was edited; preserve it and resolve before reinstalling"
             );
+            let script = hook_script(exe, record.backup.as_deref().filter(|p| runnable(p)), Some(event))?;
+            if record.script != script {
+                atomic_write(&path, script.as_bytes())?; executable(&path)?; record.script = script;
+            }
+            if !record.owners.contains(&repo.worktree) { record.owners.push(repo.worktree.clone()); }
+            atomic_write(&hook_manifest_path, &serde_json::to_vec_pretty(&hook_manifest)?)?;
             continue;
         }
-        reject_link(&path)?;
-        let backup = path
-            .exists()
+        let existing = fs::symlink_metadata(&path).ok();
+        ensure!(existing.as_ref().is_none_or(|m| m.is_file() || m.file_type().is_symlink()), "hook must be a file");
+        let backup = existing
+            .is_some()
             .then(|| hooks.join(format!("{event}.paradox-original")));
         if let Some(backup) = &backup {
             ensure!(
@@ -198,13 +227,14 @@ pub fn install(repo: Repo, exe: &Path) -> Result<()> {
                 "hook backup already exists; refusing to overwrite"
             );
         }
-        let script = hook_script(exe, backup.as_deref(), Some(event))?;
-        manifest.hooks.push(Hook {
+        let script = hook_script(exe, backup.as_deref().filter(|_| runnable(&path)), Some(event))?;
+        hook_manifest.hooks.push(Hook {
             path: path.clone(),
             backup: backup.clone(),
             script: script.clone(),
+            owners: vec![repo.worktree.clone()],
         });
-        save_manifest(repo, &manifest)?;
+        atomic_write(&hook_manifest_path, &serde_json::to_vec_pretty(&hook_manifest)?)?;
         if let Some(backup) = backup {
             fs::rename(&path, backup)?;
         }
@@ -274,13 +304,18 @@ pub fn uninstall(repo: Repo) -> Result<()> {
         edit_config(repo, edit, true)?;
     }
     manifest.edits.clear();
+    let hook_manifest_path = repo.store.join("setup-hooks.json");
+    let mut hook_manifest = load_manifest_at(&hook_manifest_path)?;
+    let active = hooks_dir(repo)?;
     let mut retained = Vec::new();
-    for hook in manifest.hooks {
+    for mut hook in hook_manifest.hooks {
+        if hook.path.parent() != Some(active.as_path()) { retained.push(hook); continue; }
+        hook.owners.retain(|owner| owner != &repo.worktree);
+        if !hook.owners.is_empty() { retained.push(hook); continue; }
         reject_link(&hook.path)?;
         if fs::read_to_string(&hook.path).is_ok_and(|s| s == hook.script) {
             fs::remove_file(&hook.path)?;
             if let Some(backup) = &hook.backup {
-                reject_link(backup)?;
                 fs::rename(backup, &hook.path)?;
             }
         } else {
@@ -291,7 +326,8 @@ pub fn uninstall(repo: Repo) -> Result<()> {
             retained.push(hook);
         }
     }
-    manifest.hooks = retained;
+    hook_manifest.hooks = retained;
+    atomic_write(&hook_manifest_path, &serde_json::to_vec_pretty(&hook_manifest)?)?;
     save_manifest(repo, &manifest)?;
     Ok(())
 }

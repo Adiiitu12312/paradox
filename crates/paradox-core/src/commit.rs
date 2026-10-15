@@ -244,12 +244,15 @@ impl LoopStore {
             let Some(range) = crate::message::marker_range(Path::new(path), &bytes) else {
                 return true;
             };
-            let Ok(head) = self
-                .head_version(path)
-                .and_then(|v| self.version_bytes(path, &v))
+            let Ok(version) = self.head_version(path)
             else {
                 return true;
             };
+            #[cfg(unix)] {
+                use std::os::unix::fs::PermissionsExt;
+                if version.mode().is_some_and(|mode| mode & 0o100 != metadata.permissions().mode() & 0o100) { return true; }
+            }
+            let Ok(head) = self.version_bytes(path, &version) else { return true; };
             let mut stripped = bytes[..range.start].to_vec();
             stripped.extend_from_slice(&bytes[range.end..]);
             stripped != head

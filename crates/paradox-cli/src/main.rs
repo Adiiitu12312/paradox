@@ -93,7 +93,7 @@ fn capture(args: &[OsString], index: usize) {
 #[command(
     name = "paradox",
     disable_version_flag = true,
-    about = "Git with local per-file loops (M3 development build)",
+    about = "Git with local per-file loops (M4 development build)",
     after_help = "Everything else is Git: original arguments, terminal I/O and exit status pass through.\n\nAvailable additions:\n  loop [file...]     Save tracked files; --gc cleans storage; --stats reports usage\n  loops <file>       List per-file loops and the HEAD baseline\n  compare <file> [a] [b]   Compare IDs, relative times, messages, HEAD or working\n  rewind <file> <version>  Restore one file; undo restores its safety loop\n  rewind --at HH:MM [--yes]  Preview and confirm a batch\n  pin <id>, unpin <id>     Protect a loop from eviction\n  track <path...>, untrack <path...>  Explicit paths beyond Git's tracked set\n\nPlanned: commit/init (M4), manual watch (M4.5), timeline (M5), ui (M6).\nUse `paradox git <args>` to force pure Git, including commit and init.\nUse `paradox git --help` for Git help. Do not alias git yet."
 )]
 struct Help {}
@@ -129,7 +129,7 @@ fn main() {
         }
         Route::Owned { index } => {
             eprintln!(
-                "paradox: '{}' is not available in M3; see paradox --help",
+                "paradox: '{}' is not available in M4; see paradox --help",
                 args[index].to_string_lossy()
             );
             std::process::exit(2);

@@ -150,27 +150,58 @@ pub fn init(args: &[OsString], index: usize) -> Result<i32> {
 pub fn commit(args: &[OsString], index: usize, file: Option<usize>) -> Result<i32> {
     let globals = &args[..file.unwrap_or(index)];
     let repo = Repo::discover(globals)?;
-    let mut commit_args = Vec::new();
+    let mut commit_args = file.map(|f| vec![args[f].clone()]).unwrap_or_default();
     let mut paths = file.map(|f| vec![args[f].clone()]).unwrap_or_default();
     let mut stage_options = Vec::new();
+    let mut pathspec_input = None;
     let mut no_verify = false;
     let mut after_dash = false;
+    let mut separator = None;
     let mut i = index + 1;
     while i < args.len() {
-        let arg = &args[i];
+        let original = &args[i];
+        let normalized;
+        let arg = if !after_dash {
+            if let Some(text) = original.to_str() {
+                if text.starts_with("--no-veri") && "--no-verify".starts_with(text) {
+                    no_verify = true; i += 1; continue;
+                }
+                if (text.starts_with("--veri") && "--verify".starts_with(text)) || text == "--no-no-verify" {
+                    no_verify = false; i += 1; continue;
+                }
+                if text.starts_with('-') && !text.starts_with("--") {
+                    let mut flags = String::from("-");
+                    let mut chars = text[1..].chars();
+                    while let Some(flag) = chars.next() {
+                        if flag == 'n' { no_verify = true; continue; }
+                        flags.push(flag);
+                        if matches!(flag, 'm' | 'F' | 'C' | 'c' | 't' | 'S' | 'u') { flags.extend(chars); break; }
+                    }
+                    if flags == "-" && text != "-" { i += 1; continue; }
+                    normalized = OsString::from(flags);
+                    &normalized
+                } else { original }
+            } else { original }
+        } else { original };
         let text = arg.to_string_lossy();
         if !after_dash && matches!(text.as_ref(), "-n" | "--no-verify") {
             no_verify = true;
             i += 1;
             continue;
         }
+        if !after_dash && text == "--" { separator = Some(commit_args.len()); }
         commit_args.push(arg.clone());
         if after_dash {
             paths.push(arg.clone());
         } else if text == "--" {
             after_dash = true;
         } else if text == "--pathspec-file-nul" || text.starts_with("--pathspec-from-file=") {
-            stage_options.push(arg.clone());
+            if text == "--pathspec-from-file=-" {
+                let temporary = pathspec_stdin()?;
+                let replacement = OsString::from(format!("--pathspec-from-file={}", temporary.path().display()));
+                *commit_args.last_mut().context("missing pathspec option")? = replacement.clone();
+                stage_options.push(replacement); pathspec_input = Some(temporary);
+            } else { stage_options.push(arg.clone()); }
         } else if matches!(
             text.as_ref(),
             "-m" | "--message"
@@ -189,21 +220,33 @@ pub fn commit(args: &[OsString], index: usize, file: Option<usize>) -> Result<i3
                 | "--template"
                 | "--trailer"
                 | "--pathspec-from-file"
-        ) {
+        ) || (text.starts_with('-') && !text.starts_with("--") && {
+            let mut chars = text[1..].chars();
+            let mut needs_value = false;
+            while let Some(flag) = chars.next() {
+                if matches!(flag, 'm' | 'F' | 'C' | 'c' | 't') { needs_value = chars.next().is_none(); break; }
+                if matches!(flag, 'S' | 'u') { break; }
+            }
+            needs_value
+        }) {
             i += 1;
             let value = args.get(i).context("commit option requires a value")?;
             commit_args.push(value.clone());
             if text == "--pathspec-from-file" {
-                stage_options.extend([arg.clone(), value.clone()]);
+                if value == "-" {
+                    let temporary = pathspec_stdin()?;
+                    let replacement = temporary.path().as_os_str().to_owned();
+                    *commit_args.last_mut().context("missing pathspec value")? = replacement.clone();
+                    stage_options.extend([arg.clone(), replacement]); pathspec_input = Some(temporary);
+                } else { stage_options.extend([arg.clone(), value.clone()]); }
             }
         } else if !text.starts_with('-') {
             paths.push(arg.clone());
         }
         i += 1;
     }
-    if let Some(file) = file {
-        commit_args.extend([OsString::from("--"), args[file].clone()]);
-    }
+    // An unrecognized Git spelling must not disable our own stripper.
+    commit_args.insert(separator.unwrap_or(commit_args.len()), "--verify".into());
     capture(repo.clone());
     let mut add = globals.to_vec();
     add.extend([OsString::from("add"), OsString::from("-A")]);
@@ -226,7 +269,7 @@ pub fn commit(args: &[OsString], index: usize, file: Option<usize>) -> Result<i3
     if hooks.is_dir() {
         for entry in fs::read_dir(&hooks)? {
             let entry = entry?;
-            if !entry.file_type()?.is_file() {
+            if !paradox_core::setup::runnable(&entry.path()) {
                 continue;
             }
             let name = entry.file_name();
@@ -242,7 +285,7 @@ pub fn commit(args: &[OsString], index: usize, file: Option<usize>) -> Result<i3
     }
     for event in ["pre-commit", "post-commit"] {
         let previous = hooks.join(event);
-        let previous = previous.is_file().then_some(previous);
+        let previous = paradox_core::setup::runnable(&previous).then_some(previous);
         let previous = if no_verify && event == "pre-commit" {
             None
         } else {
@@ -261,8 +304,16 @@ pub fn commit(args: &[OsString], index: usize, file: Option<usize>) -> Result<i3
     ]);
     command.extend(commit_args);
     let status = paradox_core::git::command(&command).status()?;
+    drop(pathspec_input);
     if status.success() {
         purge(globals);
     }
     Ok(status.code().unwrap_or(1))
+}
+
+fn pathspec_stdin() -> Result<tempfile::NamedTempFile> {
+    let mut file = tempfile::Builder::new().prefix("paradox-pathspec-").tempfile()?;
+    std::io::copy(&mut std::io::stdin().lock(), &mut file)?;
+    file.as_file().sync_all()?;
+    Ok(file)
 }
