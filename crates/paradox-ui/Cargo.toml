@@ -1,0 +1,8 @@
+[package]
+name = "paradox-ui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+paradox-core.workspace = true

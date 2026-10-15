@@ -1,0 +1,18 @@
+[workspace]
+members = ["crates/paradox-core", "crates/paradox-cli", "crates/paradox-ui"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[workspace.dependencies]
+paradox-core = { path = "crates/paradox-core" }
+clap = { version = "4", features = ["derive"] }
+tempfile = "3"
+proptest = "1"
+
+[profile.release]
+lto = "thin"
+strip = true
