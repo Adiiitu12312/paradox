@@ -63,6 +63,7 @@ def windows_terminal(executable, arguments, cwd, env, interrupt):
     process = PtyProcess.spawn([executable, *arguments], cwd=str(cwd), env=env)
     output = bytearray()
     sent_interrupt = False
+    interrupted_at = None
     deadline = time.monotonic() + 15
     try:
         while time.monotonic() < deadline:
@@ -74,11 +75,13 @@ def windows_terminal(executable, arguments, cwd, env, interrupt):
                 if interrupt and b"SIGNAL_READY" in output and not sent_interrupt:
                     process.sendintr()
                     sent_interrupt = True
+                    interrupted_at = time.monotonic()
             elif not process.isalive():
                 break
         assert not process.isalive(), f"terminal command timed out: {arguments}: {output!r}"
         if interrupt:
             assert sent_interrupt, output
+            assert time.monotonic() - interrupted_at < 5, "Ctrl+C did not end the command promptly"
         return process.exitstatus, bytes(output)
     finally:
         process.close(force=True)
@@ -152,7 +155,10 @@ def main():
         command = ["-c", "alias.signal-test=!printf 'SIGNAL_READY\\n'; exec sleep 30", "signal-test"]
         direct = terminal(git, command, root, env, interrupt=True)
         wrapped = terminal(binary, command, root, env, interrupt=True)
-        assert direct[0] == wrapped[0] != 0, (direct, wrapped)
+        # Git for Windows can return zero when its shell alias is interrupted.
+        # Match Git's actual status; the terminal helper also proves termination
+        # before the 30-second sleep could finish on its own.
+        assert direct[0] == wrapped[0], (direct, wrapped)
         print(f"PASS: Ctrl+C exits Git and Paradox with the same status ({wrapped[0]})")
 
 
