@@ -1,4 +1,11 @@
-# Core amendments: implementation and validation in progress
+# Core amendments: complete
+
+Accepted with M7 on source e7d5442bd41a54d3108f1d21438515a9335c1695 in
+[full three-OS run 38789147982](https://github.com/Adiiitu12312/paradox/actions/runs/38789147982).
+Every required job passed, including release capture/handoff, three fixed
+pass-through assessments per OS, browser/terminal/security tests and ten-minute
+watcher footprint checks. The exact Windows binary also passed all eleven local
+Edge flows. Implementation has stopped at M7; M8, M9 and S remain pending.
 
 The owner's latest instruction is to complete these amendments and all M7
 acceptance work, then stop. M8/M9 and S (cloud-system exploration) remain pending;
@@ -72,8 +79,9 @@ A disappearing tracked file creates a `deleted` loop with a timestamp and no
 blob. Repeated missing-file events deduplicate. Reappearance at the same path
 continues the history, and rewind can restore an earlier saved version.
 
-Validation is in progress. Do not treat the implementation notes here as a
-claim that the new cross-platform regression or performance gates have passed.
+The earlier failed timing observations above remain historical evidence. The
+accepted run passes the final documented OS budgets and baseline ceilings;
+see the [M7 report](milestones/M7.md) for exact measurements and limitations.
 
 The bounded metadata optimization passed all functional checks, but the next
 fresh Windows host measured 299.6146 ms for the 20-saver burst, 49.8073% over

@@ -3,11 +3,12 @@
 A Rust Git wrapper that will add local per-file loops and a browser Git UI.
 Git remains the source of truth; every Git operation uses the installed Git binary.
 
-**Development status: M1–M5 complete; M6 browser UI is in progress.**
-The [core brief amendments](docs/amendments-core.md) are being applied and tested;
-complete M7 acceptance, then stop. M8, M9 and S (future cloud-system exploration)
-remain pending for later. No cloud research starts before M7 is accepted.
-The [M6 work report](docs/milestones/M6.md) records its current validation state.
+**Development status: M1–M7 complete, including M4.5. Implementation stopped at M7.**
+The [core brief amendments](docs/amendments-core.md) are complete and tested.
+The [M7 acceptance report](docs/milestones/M7.md) records the fully green
+Windows/macOS/Linux run and exact local Windows browser verification.
+M8, M9 and S (future cloud-system exploration) remain pending for later.
+The [M6 report](docs/milestones/M6.md) records its accepted UI integration.
 The [contention benchmark](benchmarks/pending.csv) records approved burst handoff
 limits: macOS 100 ms (78.886042 ms observed) and Windows 400 ms (299.6146 ms
 observed, with a tighter 360.53752 ms ceiling), with stored-baseline protection.
@@ -32,8 +33,9 @@ See the [M4 report](docs/milestones/M4.md) for the accepted boundary exception.
 The [M4.5 report](docs/milestones/M4.5.md) records the complete three-OS rerun:
 functional, terminal, concurrency, performance, audit and ten-minute idle gates
 all passed. Idle watcher RSS was 9.54 MB on Linux, 13.45 MB on macOS and 7.47 MB
-on Windows, with near-zero CPU. No new threshold exception was needed. The UI
-arrives later. This is suitable for a controlled Git-backed trial; full release
+on Windows, with near-zero CPU. No new threshold exception was needed there.
+The Git UI is implemented through M7; per-file loop visualization remains M8.
+This is suitable for a controlled Git-backed trial; full release
 hardening remains in M9. Do not alias `git` to this development build yet.
 
 ## Build on GitHub (preferred for this project)

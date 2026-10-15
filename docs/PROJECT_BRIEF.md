@@ -197,8 +197,8 @@ M3. `loops`, `compare`, `rewind` (including undo and `--at`), `pin`, `track`, `l
 M4. `paradox init` with automatic capture (editor and AI hooks), agent-rule printing, `paradox commit` (+ `<file> commit`), git hooks, stripping, purge, eviction. Accept: W2, W3 and W8 pass; every marker form is absent from `git show HEAD` while worktree bytes are untouched; hook chaining, core.hooksPath, editor-config and print-only agent-rule tests pass; no command auto-starts a process.
 M4.5. `paradox watch`: implement and pass every requirement/test in `docs/milestones/M4.5-watch.md`, including manual foreground/background lifecycle, PID/lock recovery, index/track-list refresh, native events, per-file debounce, self-write suppression, bulk guard, multi-agent-safe capture and measured idle footprint. Windows and macOS CI must run the watcher tests.
 M5. `paradox timeline` picker. Accept: W4 passes with 0, 1, 2, and 3+ commits.
-M6. UI part 1: server, security, commit graph, working tree, staging (files and hunks), commit, diff. Accept: API and Playwright tests; graph pages smoothly on the synthetic large repo.
-M7. UI part 2: branches, merge/rebase/cherry-pick/revert, stash, remotes with progress, blame, conflict resolver, destructive-action confirmations, command log panel.
+M6. COMPLETE — UI part 1: server, security, commit graph, working tree, staging (files and hunks), commit, diff. Accept: API and Playwright tests; graph pages smoothly on the synthetic large repo.
+M7. COMPLETE — UI part 2: branches, merge/rebase/cherry-pick/revert, stash, remotes with progress, blame, conflict resolver, destructive-action confirmations, command log panel.
 M8. PENDING — UI part 3: loop timeline with one/two-point compare and rewind, then the swimlane view and rewind --at. Accept: W6 passes end to end.
 M9. PENDING — Hardening: cross-platform CI green, README (install, quickstart, command reference, design notes, known limitations, how to alias git=paradox, how automatic capture works and how to set up other editors), release build instructions for a single binary per OS.
 
@@ -211,6 +211,12 @@ M9. PENDING — Hardening: cross-platform CI green, README (install, quickstart,
 - If a requirement here conflicts with Git parity or data safety, prefer parity and safety, and tell me.
 
 ## Accepted amendments (October 15, 2026)
+
+M7 boundary reached October 16, 2026 (Asia/Calcutta): source
+e7d5442bd41a54d3108f1d21438515a9335c1695 passed every required job in full
+three-OS run 38789147982. The exact Windows binary also passed all eleven local
+Edge flows. M6 and all six core amendments are accepted with it. Implementation
+has stopped at M7; M8, M9 and S remain pending. See docs/milestones/M7.md.
 
 Current owner instruction: complete and test the core amendments, finish all
 remaining M7 acceptance work, then STOP at the accepted M7 boundary. M8 (loop UI) and M9
