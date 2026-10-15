@@ -18,6 +18,30 @@ enum Source {
     Absent,
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use proptest::prelude::*;
+
+    #[test]
+    fn invalid_clocks_and_overflowing_relative_times_are_errors() {
+        for value in ["", "25:00", "12:60", "1:23", "aa:bb"] {
+            assert!(clock_time(value).is_err());
+        }
+        assert!(relative_target("999999999999999999999h").is_err());
+        assert!(relative_target("9223372036854775807d").is_err());
+        assert_eq!(relative_target("a message").unwrap(), None);
+    }
+
+    proptest! {
+        #[test]
+        fn time_parsers_never_panic(value in ".{0,300}") {
+            let _ = relative_target(&value);
+            let _ = clock_time(&value);
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Version {
     path: String,
@@ -340,10 +364,10 @@ impl LoopStore {
 
     fn at_time(&self, path: &str, at: i64, commit: &Option<(String, i64)>) -> Result<Version> {
         let record = self.loops(path)?.into_iter().find(|record| record.ts <= at);
-        if let Some(record) = record {
-            if commit.as_ref().is_none_or(|(_, ts)| record.ts >= *ts) {
-                return Ok(Version::from_loop(record));
-            }
+        if let Some(record) = record
+            && commit.as_ref().is_none_or(|(_, ts)| record.ts >= *ts)
+        {
+            return Ok(Version::from_loop(record));
         }
         if let Some((commit, ts)) = commit {
             return self.git_version(
@@ -503,6 +527,9 @@ impl LoopStore {
     pub fn compare(&self, path: &str, a: &Version, b: &Version) -> Result<String> {
         let old = self.version_bytes(path, a)?;
         let new = self.version_bytes(path, b)?;
+        if old == new && a.deleted != b.deleted {
+            return Ok(format!("Empty file state: {} -> {}\n", if a.deleted { "absent" } else { "present" }, if b.deleted { "absent" } else { "present" }));
+        }
         if old.iter().take(8192).any(|byte| *byte == 0)
             || new.iter().take(8192).any(|byte| *byte == 0)
         {
@@ -609,6 +636,7 @@ impl LoopStore {
                 );
                 let version = self.at_time(&path, at, &commit)?;
                 let target = self.version_bytes(&path, &version)?;
+                ensure!(!target.iter().take(8192).any(|byte| *byte == 0), "binary target cannot be safely undone");
                 if current.deleted == version.deleted && current.bytes == target {
                     return Ok(None);
                 }
@@ -635,6 +663,7 @@ impl LoopStore {
             deleted,
             started_ms: now()?,
         })?;
+        ensure!(marker.len() <= 65536, "path exceeds the recoverable writing-marker limit");
         let file = self.marker_path();
         let previous = fs::metadata(&file).map(|m| m.len()).unwrap_or(0);
         let reserve = marker.len() as u64 + 8192;
@@ -686,7 +715,8 @@ impl LoopStore {
                         protected.push(id);
                     }
                 }
-                let _ = self.version_bytes(&plan.path, &plan.version)?;
+                let target = self.version_bytes(&plan.path, &plan.version)?;
+                ensure!(!target.iter().take(8192).any(|byte| *byte == 0), "binary targets cannot be safely undone; rewind refused");
                 let _ = self.read_working(&plan.path)?;
             }
             for plan in plans {

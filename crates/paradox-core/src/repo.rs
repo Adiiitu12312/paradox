@@ -235,8 +235,8 @@ impl Repo {
             {
                 dirty.insert(path.to_string());
             }
-            if entry.first() == Some(&b'2') {
-                if let Some(old) = entries.next()
+            if entry.first() == Some(&b'2')
+                && let Some(old) = entries.next()
                     && entry
                         .splitn(10, |byte| *byte == b' ')
                         .nth(8)
@@ -248,9 +248,8 @@ impl Repo {
                             .nth(9)
                             .and_then(|path| std::str::from_utf8(path).ok()),
                     )
-                {
-                    renames.push((old.into(), new.into()));
-                }
+            {
+                renames.push((old.into(), new.into()));
             }
         }
         dirty.extend(self.extra_tracked()?);

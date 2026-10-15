@@ -115,10 +115,10 @@ impl LoopStore {
             .query_row("SELECT value FROM meta WHERE key=?1", [&key], |row| {
                 row.get::<_, String>(0)
             });
-        if let (Some(signature), Ok(previous)) = (&signature, previous) {
-            if *signature == previous {
-                return Ok(None);
-            }
+        if let (Some(signature), Ok(previous)) = (&signature, previous)
+            && *signature == previous
+        {
+            return Ok(None);
         }
         let changes = self.repo.changes()?;
         self.apply_git_renames(&changes.renames)?;

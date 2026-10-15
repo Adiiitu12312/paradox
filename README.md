@@ -135,7 +135,8 @@ be empty. Use explicit versions to inspect earlier changes.
 Each rewind protects its target and records a durable `before rewind` safety
 loop before replacing only the named file. `undo` restores that safety state;
 it can also undo recreating a deleted file. Binary, oversized, secret-denylisted
-or linked working files cannot be safely backed up and are refused. Existing
+or linked working files cannot be safely backed up and are refused. Binary or
+oversized targets are refused too, so the result remains eligible for undo. Existing
 file permissions are retained; saved modes are used when recreating files on Unix.
 
 Batch time means the most recent local occurrence of `HH:MM`; ambiguous or
