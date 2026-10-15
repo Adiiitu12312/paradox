@@ -1,0 +1,28 @@
+name: Verify storage accounting
+on: workflow_dispatch
+permissions:
+  contents: read
+jobs:
+  storage:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-15, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true
+      - run: cargo fmt --all
+      - run: git diff --binary > preparation.patch
+      - uses: actions/upload-artifact@v4
+        with:
+          name: storage-preparation-${{ runner.os }}
+          path: preparation.patch
+          retention-days: 1
+      - run: cargo test --locked -p paradox-core --test capture -- --nocapture

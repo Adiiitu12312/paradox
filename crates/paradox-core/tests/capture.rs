@@ -314,6 +314,24 @@ fn text(seed: u32, len: usize) -> Vec<u8> {
 }
 
 #[test]
+fn blob_charge_matches_allocation_after_writer_closes() {
+    let temp = tempfile::tempdir().unwrap();
+    let blobs = paradox_core::blob::LocalStore::new(temp.path().join("blobs"), 1_000_000).unwrap();
+    let bytes = text(0, 120_000);
+    let hash = blake3::hash(&bytes).to_hex().to_string();
+    let charged = blobs.put(&hash, &bytes).unwrap();
+    // put has returned, so its writable file handle has been closed. Account
+    // against the allocation the persisted blob actually retains afterwards.
+    let file = fs::File::open(blobs.path(&hash).unwrap()).unwrap();
+    let logical = file.metadata().unwrap().len();
+    let allocated = fs2::FileExt::allocated_size(&file).unwrap();
+    let expected = allocated.max(logical).max(4096).saturating_add(4096);
+    eprintln!("blob charge={charged} actual_charge={expected} allocated={allocated} logical={logical}");
+    assert_eq!(charged, expected, "blob charge must reflect retained allocation");
+    assert_eq!(blobs.get(&hash).unwrap(), bytes);
+}
+
+#[test]
 fn evicts_oldest_unpinned_and_keeps_pins_with_bounded_storage() {
     let temp = fixture();
     let mut store = open(temp.path());
@@ -326,7 +344,21 @@ fn evicts_oldest_unpinned_and_keeps_pins_with_bounded_storage() {
         .execute("UPDATE loops SET pinned=1 WHERE id=?1", [pinned])
         .unwrap();
     fs::write(temp.path().join("file.ts"), text(1, 120_000)).unwrap();
-    assert_eq!(save(&mut store).saved, 1);
+    let second = save(&mut store);
+    let stored_sizes = store
+        .index
+        .prepare("SELECT hash, stored_size FROM blobs ORDER BY hash")
+        .unwrap()
+        .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(
+        second.saved, 1,
+        "report={second:?}, stored_sizes={stored_sizes:?}, bytes={:?}, log={}",
+        store.bytes(),
+        fs::read_to_string(store.repo.store.join("log")).unwrap_or_default()
+    );
     let oldest_unpinned = store.loops("file.ts").unwrap()[0].id;
     for n in 2..8 {
         fs::write(temp.path().join("file.ts"), text(n, 120_000)).unwrap();
