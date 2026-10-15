@@ -3,7 +3,9 @@
 A Rust Git wrapper that will add local per-file loops and a browser Git UI.
 Git remains the source of truth; every Git operation uses the installed Git binary.
 
-**Development status: milestone M1.** This build implements the workspace and
+**Development status: M1 implemented; Windows latency acceptance is open.**
+See the [M1 verification report](docs/milestones/M1.md) for measured results.
+This build implements the workspace and
 dispatcher. Loop storage, automatic capture, auto-staging commits and the UI are
 scheduled for later milestones. Do not alias `git` to this development build.
 
@@ -19,6 +21,10 @@ The macOS runner architecture is shown in the artifact name.
 Artifacts expire after seven days. The workflow supports manual runs as well as
 pushes and pull requests. GitHub Actions availability and billing depend on your
 repository and account; no paid build service has been enabled by this project.
+
+Development artifacts are uploaded after functional and terminal checks, before
+the performance gate. An artifact can therefore exist on a run whose timing gate
+failed; it does not mean the milestone's performance target passed.
 
 ## Optional local build
 
@@ -89,6 +95,16 @@ CI is configured for Windows, macOS and Linux. A local Windows test run is not
 evidence that those remote jobs have run. Terminal interaction and signal delivery
 also need platform-specific verification; captured output tests alone cannot
 establish all interactive behavior.
+
+To measure a downloaded binary on a machine with Node.js already available,
+without a compiler, run:
+
+```text
+node scripts/benchmark_host.mjs /absolute/path/to/paradox
+```
+
+This script also uses a new temporary repository outside the project and removes
+that repository on exit. It fails if measured paired overhead reaches 5 ms.
 
 ## Milestone order
 
