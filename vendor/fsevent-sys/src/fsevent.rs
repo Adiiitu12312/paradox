@@ -72,7 +72,6 @@ pub struct FSEventStreamContext {
     pub copy_description: Option<CFAllocatorCopyDescriptionCallBack>,
 }
 
-
 // Paradox diagnostic prototype: upstream 4.1.0 declarations retain their ABI,
 // but CoreServices opens only when ensure_loaded() or an API is first used.
 // The upstream MIT license is preserved alongside this source.
@@ -82,24 +81,64 @@ const FRAMEWORK: &[u8] = b"/System/Library/Frameworks/CoreServices.framework/Cor
 
 fn loader_error(context: &str) -> String {
     let error = unsafe { libc::dlerror() };
-    if error.is_null() { context.to_owned() }
-    else { format!("{}: {}", context, unsafe { CStr::from_ptr(error) }.to_string_lossy()) }
+    if error.is_null() {
+        context.to_owned()
+    } else {
+        format!(
+            "{}: {}",
+            context,
+            unsafe { CStr::from_ptr(error) }.to_string_lossy()
+        )
+    }
 }
 unsafe fn symbol(handle: *mut c_void, name: &'static [u8]) -> Result<*mut c_void, String> {
-    unsafe { libc::dlerror(); }
+    unsafe {
+        libc::dlerror();
+    }
     let address = unsafe { libc::dlsym(handle, name.as_ptr().cast()) };
     if address.is_null() {
-        Err(loader_error(&format!("CoreServices symbol {} unavailable", String::from_utf8_lossy(&name[..name.len()-1]))))
-    } else { Ok(address) }
+        Err(loader_error(&format!(
+            "CoreServices symbol {} unavailable",
+            String::from_utf8_lossy(&name[..name.len() - 1])
+        )))
+    } else {
+        Ok(address)
+    }
 }
-trait Unavailable { fn unavailable() -> Self; }
-fn unavailable<T: Unavailable>() -> T { T::unavailable() }
-impl Unavailable for () { fn unavailable() {} }
-impl Unavailable for u64 { fn unavailable() -> Self { 0 } }
-impl Unavailable for u8 { fn unavailable() -> Self { 0 } }
-impl Unavailable for i32 { fn unavailable() -> Self { 0 } }
-impl<T> Unavailable for *mut T { fn unavailable() -> Self { std::ptr::null_mut() } }
-impl<T> Unavailable for *const T { fn unavailable() -> Self { std::ptr::null() } }
+trait Unavailable {
+    fn unavailable() -> Self;
+}
+fn unavailable<T: Unavailable>() -> T {
+    T::unavailable()
+}
+impl Unavailable for () {
+    fn unavailable() {}
+}
+impl Unavailable for u64 {
+    fn unavailable() -> Self {
+        0
+    }
+}
+impl Unavailable for u8 {
+    fn unavailable() -> Self {
+        0
+    }
+}
+impl Unavailable for i32 {
+    fn unavailable() -> Self {
+        0
+    }
+}
+impl<T> Unavailable for *mut T {
+    fn unavailable() -> Self {
+        std::ptr::null_mut()
+    }
+}
+impl<T> Unavailable for *const T {
+    fn unavailable() -> Self {
+        std::ptr::null()
+    }
+}
 
 macro_rules! lazy_api {
     ($(fn $name:ident($($argument:ident: $kind:ty),* $(,)?) $(-> $result:ty)?;)+) => {
@@ -178,7 +217,12 @@ mod lazy_tests {
     fn resolves_complete_api_and_reports_a_missing_symbol() {
         ensure_loaded().expect("macOS CoreServices preflight");
         let api = API.get().unwrap().as_ref().unwrap();
-        let missing = unsafe { symbol(api._handle as *mut c_void, b"ParadoxDiagnosticMissingFSEventsSymbol\0") };
+        let missing = unsafe {
+            symbol(
+                api._handle as *mut c_void,
+                b"ParadoxDiagnosticMissingFSEventsSymbol\0",
+            )
+        };
         assert!(missing.is_err());
         assert!(ensure_loaded().is_ok());
     }

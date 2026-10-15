@@ -351,6 +351,11 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
     }
     let (sender, receiver) = mpsc::channel();
     let signals = sender.clone();
+    #[cfg(target_os = "macos")]
+    let _signal_guard = crate::watch_signal::Guard::new(move || {
+        let _ = signals.send(Message::Stop);
+    })?;
+    #[cfg(not(target_os = "macos"))]
     ctrlc::set_handler(move || {
         let _ = signals.send(Message::Stop);
     })?;

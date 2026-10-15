@@ -10,6 +10,8 @@ pub mod setup;
 pub mod store;
 pub mod tracking;
 pub mod watch;
+#[cfg(target_os = "macos")]
+mod watch_signal;
 
 pub(crate) fn fault(point: &str) {
     #[cfg(feature = "fault-injection")]
