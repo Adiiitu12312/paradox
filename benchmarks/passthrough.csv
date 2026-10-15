@@ -2,3 +2,9 @@ os,baseline_ms,limit_ms
 linux,0.548266,5
 macos,2.741584,5
 windows,15.3758,20
+# Windows has no exec; inherited-console spawn/wait adds process startup cost.
+# OS limits remain 5 ms on Linux/macOS and 20 ms on Windows.
+# Ceiling: min(OS limit, baseline * 1.5 + 1 ms); stored observations never auto-rise.
+# After 16 warm-ups each, interleave 201 samples per executable per round.
+# Compare signed paired median differences in three consecutive rounds in one run.
+# Fail a command only when at least two rounds exceed its existing ceiling.

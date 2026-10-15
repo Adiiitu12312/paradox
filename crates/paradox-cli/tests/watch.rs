@@ -362,7 +362,7 @@ fn ordinary_settled_save_is_captured_before_two_second_bulk_window() {
 }
 
 #[test]
-fn paced_bulk_promotes_earlier_watcher_saves_and_keeps_latest_content() {
+fn bulk_promotes_previously_settled_watcher_saves_and_keeps_latest_content() {
     let temp = fixture(51);
     let root = temp.path();
     let mut watch = Session::start(root);
@@ -377,22 +377,39 @@ fn paced_bulk_promotes_earlier_watcher_saves_and_keeps_latest_content() {
             "//> paced checkout\nchanged\n",
         )
         .unwrap();
-        std::thread::sleep(Duration::from_millis(15));
     }
     let burst_elapsed = burst_started.elapsed();
+    println!("bulk input: 51 changed paths in {burst_elapsed:?}");
+    assert!(burst_elapsed < Duration::from_secs(2), "bulk fixture must generate its 51 changes within two seconds: {burst_elapsed:?}");
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
         let current = store(root);
-        let scans: i64 = current.index.query_row(
-            "SELECT COUNT(*) FROM loops WHERE kind='scan' AND message='bulk change'",
-            [], |r| r.get(0),
-        ).unwrap();
-        if scans == 51 { break; }
-        assert!(Instant::now() < deadline,
+        let scans: i64 = current
+            .index
+            .query_row(
+                "SELECT COUNT(*) FROM loops WHERE kind='scan' AND message='bulk change'",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        if scans == 51 {
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
             "paced bulk: burst={burst_elapsed:?}; scans={scans}; total={}; file0={:?}; log={}",
-            current.index.query_row("SELECT COUNT(*) FROM loops", [], |r| r.get::<_, i64>(0)).unwrap(),
-            current.loops("src/0.ts").unwrap().iter().map(|row| (&row.message, &row.kind)).collect::<Vec<_>>(),
-            fs::read_to_string(root.join(".paradox/log")).unwrap_or_default());
+            current
+                .index
+                .query_row("SELECT COUNT(*) FROM loops", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            current
+                .loops("src/0.ts")
+                .unwrap()
+                .iter()
+                .map(|row| (&row.message, &row.kind))
+                .collect::<Vec<_>>(),
+            fs::read_to_string(root.join(".paradox/log")).unwrap_or_default()
+        );
         drop(current);
         std::thread::sleep(Duration::from_millis(50));
     }
