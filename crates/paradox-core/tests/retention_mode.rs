@@ -23,7 +23,11 @@ fn git(root: &Path, args: &[&str]) -> String {
         .env_remove("GIT_INDEX_FILE")
         .output()
         .unwrap();
-    assert!(output.status.success(), "{}", String::from_utf8_lossy(&output.stderr));
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
     String::from_utf8(output.stdout).unwrap()
 }
 
@@ -59,5 +63,9 @@ fn marker_only_bytes_with_an_uncommitted_mode_change_keep_old_loops() {
     assert_eq!(store.purge().unwrap(), 0);
     let retained = store.loops("a.ts").unwrap();
     assert_eq!(retained.len(), before.len());
-    assert!(before.iter().all(|old| retained.iter().any(|new| old.id == new.id)));
+    assert!(
+        before
+            .iter()
+            .all(|old| retained.iter().any(|new| old.id == new.id))
+    );
 }

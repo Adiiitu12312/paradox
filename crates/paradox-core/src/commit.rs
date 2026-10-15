@@ -15,6 +15,7 @@ fn index_path(repo: &Repo) -> Result<PathBuf> {
 
 /// Stream the body through Git; memory is bounded by two permitted header lines.
 fn stripped_blob(repo: &Repo, path: &Path, oid: &str) -> Result<Option<String>> {
+    if path.extension().and_then(|s| s.to_str()).is_some_and(|s| s.eq_ignore_ascii_case("json")) { return Ok(None); }
     let mut source = repo
         .command(&["cat-file", "blob", oid])
         .stdout(Stdio::piped())
@@ -36,7 +37,7 @@ fn stripped_blob(repo: &Repo, path: &Path, oid: &str) -> Result<Option<String>> 
                     b";>",
                     b"%>",
                     b"/*>",
-                    b"<!-->",
+                    b"<!-->", b"#!",
                 ]
                 .iter()
                 .any(|p| value.starts_with(p));
@@ -244,15 +245,22 @@ impl LoopStore {
             let Some(range) = crate::message::marker_range(Path::new(path), &bytes) else {
                 return true;
             };
-            let Ok(version) = self.head_version(path)
-            else {
+            let Ok(version) = self.head_version(path) else {
                 return true;
             };
-            #[cfg(unix)] {
+            #[cfg(unix)]
+            {
                 use std::os::unix::fs::PermissionsExt;
-                if version.mode().is_some_and(|mode| mode & 0o100 != metadata.permissions().mode() & 0o100) { return true; }
+                if version
+                    .mode()
+                    .is_some_and(|mode| mode & 0o100 != metadata.permissions().mode() & 0o100)
+                {
+                    return true;
+                }
             }
-            let Ok(head) = self.version_bytes(path, &version) else { return true; };
+            let Ok(head) = self.version_bytes(path, &version) else {
+                return true;
+            };
             let mut stripped = bytes[..range.start].to_vec();
             stripped.extend_from_slice(&bytes[range.end..]);
             stripped != head

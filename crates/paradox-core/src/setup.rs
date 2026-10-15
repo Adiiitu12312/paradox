@@ -24,16 +24,25 @@ pub fn executable(path: &Path) -> Result<()> {
 
 /// Follow existing hook links, preserving native Git's executable eligibility.
 pub fn runnable(path: &Path) -> bool {
-    let Ok(meta) = fs::metadata(path) else { return false; };
-    if !meta.is_file() { return false; }
-    #[cfg(unix)] {
+    let Ok(meta) = fs::metadata(path) else {
+        return false;
+    };
+    if !meta.is_file() {
+        return false;
+    }
+    #[cfg(unix)]
+    {
         use std::os::unix::fs::PermissionsExt;
         meta.permissions().mode() & 0o111 != 0
     }
-    #[cfg(windows)] {
+    #[cfg(windows)]
+    {
         use std::io::Read;
-        let mut prefix = [0;2];
-        fs::File::open(path).and_then(|mut f| f.read_exact(&mut prefix)).is_ok() && matches!(&prefix, b"#!" | b"MZ")
+        let mut prefix = [0; 2];
+        fs::File::open(path)
+            .and_then(|mut f| f.read_exact(&mut prefix))
+            .is_ok()
+            && matches!(&prefix, b"#!" | b"MZ")
     }
 }
 
@@ -94,7 +103,7 @@ fn load_manifest(repo: &Repo) -> Result<Manifest> {
     load_manifest_at(&path)
 }
 fn load_manifest_at(path: &Path) -> Result<Manifest> {
-    reject_link(&path)?;
+    reject_link(path)?;
     if path.exists() {
         Ok(serde_json::from_slice(&fs::read(path)?)?)
     } else {
@@ -208,16 +217,32 @@ pub fn install(repo: Repo, exe: &Path) -> Result<()> {
                 fs::read_to_string(&path).is_ok_and(|s| s == record.script),
                 "managed hook was edited; preserve it and resolve before reinstalling"
             );
-            let script = hook_script(exe, record.backup.as_deref().filter(|p| runnable(p)), Some(event))?;
+            let script = hook_script(
+                exe,
+                record.backup.as_deref().filter(|p| runnable(p)),
+                Some(event),
+            )?;
             if record.script != script {
-                atomic_write(&path, script.as_bytes())?; executable(&path)?; record.script = script;
+                atomic_write(&path, script.as_bytes())?;
+                executable(&path)?;
+                record.script = script;
             }
-            if !record.owners.contains(&repo.worktree) { record.owners.push(repo.worktree.clone()); }
-            atomic_write(&hook_manifest_path, &serde_json::to_vec_pretty(&hook_manifest)?)?;
+            if !record.owners.contains(&repo.worktree) {
+                record.owners.push(repo.worktree.clone());
+            }
+            atomic_write(
+                &hook_manifest_path,
+                &serde_json::to_vec_pretty(&hook_manifest)?,
+            )?;
             continue;
         }
         let existing = fs::symlink_metadata(&path).ok();
-        ensure!(existing.as_ref().is_none_or(|m| m.is_file() || m.file_type().is_symlink()), "hook must be a file");
+        ensure!(
+            existing
+                .as_ref()
+                .is_none_or(|m| m.is_file() || m.file_type().is_symlink()),
+            "hook must be a file"
+        );
         let backup = existing
             .is_some()
             .then(|| hooks.join(format!("{event}.paradox-original")));
@@ -227,14 +252,21 @@ pub fn install(repo: Repo, exe: &Path) -> Result<()> {
                 "hook backup already exists; refusing to overwrite"
             );
         }
-        let script = hook_script(exe, backup.as_deref().filter(|_| runnable(&path)), Some(event))?;
+        let script = hook_script(
+            exe,
+            backup.as_deref().filter(|_| runnable(&path)),
+            Some(event),
+        )?;
         hook_manifest.hooks.push(Hook {
             path: path.clone(),
             backup: backup.clone(),
             script: script.clone(),
             owners: vec![repo.worktree.clone()],
         });
-        atomic_write(&hook_manifest_path, &serde_json::to_vec_pretty(&hook_manifest)?)?;
+        atomic_write(
+            &hook_manifest_path,
+            &serde_json::to_vec_pretty(&hook_manifest)?,
+        )?;
         if let Some(backup) = backup {
             fs::rename(&path, backup)?;
         }
@@ -309,9 +341,15 @@ pub fn uninstall(repo: Repo) -> Result<()> {
     let active = hooks_dir(repo)?;
     let mut retained = Vec::new();
     for mut hook in hook_manifest.hooks {
-        if hook.path.parent() != Some(active.as_path()) { retained.push(hook); continue; }
+        if hook.path.parent() != Some(active.as_path()) {
+            retained.push(hook);
+            continue;
+        }
         hook.owners.retain(|owner| owner != &repo.worktree);
-        if !hook.owners.is_empty() { retained.push(hook); continue; }
+        if !hook.owners.is_empty() {
+            retained.push(hook);
+            continue;
+        }
         reject_link(&hook.path)?;
         if fs::read_to_string(&hook.path).is_ok_and(|s| s == hook.script) {
             fs::remove_file(&hook.path)?;
@@ -327,7 +365,10 @@ pub fn uninstall(repo: Repo) -> Result<()> {
         }
     }
     hook_manifest.hooks = retained;
-    atomic_write(&hook_manifest_path, &serde_json::to_vec_pretty(&hook_manifest)?)?;
+    atomic_write(
+        &hook_manifest_path,
+        &serde_json::to_vec_pretty(&hook_manifest)?,
+    )?;
     save_manifest(repo, &manifest)?;
     Ok(())
 }

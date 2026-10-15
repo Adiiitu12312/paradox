@@ -156,13 +156,17 @@ impl Repo {
 
     pub fn relative(&self, input: &Path) -> Result<String> {
         let path = if input.is_absolute() {
-            if let Ok(relative) = input.strip_prefix(&self.root) { relative.to_path_buf() }
-            else {
+            if let Ok(relative) = input.strip_prefix(&self.root) {
+                relative.to_path_buf()
+            } else {
                 // Editors may spell the same root through /var vs /private/var
                 // or Windows short names. Resolve only the root alias; preserve
                 // every component below it so symlink-file guards still apply.
                 let canonical = std::fs::canonicalize(&self.root)?;
-                let alias = input.ancestors().skip(1).find(|ancestor| std::fs::canonicalize(ancestor).is_ok_and(|p| p == canonical))
+                let alias = input
+                    .ancestors()
+                    .skip(1)
+                    .find(|ancestor| std::fs::canonicalize(ancestor).is_ok_and(|p| p == canonical))
                     .context("file is outside this working tree")?;
                 input.strip_prefix(alias)?.to_path_buf()
             }

@@ -3,14 +3,15 @@
 A Rust Git wrapper that will add local per-file loops and a browser Git UI.
 Git remains the source of truth; every Git operation uses the installed Git binary.
 
-**Development status: M1–M3 complete; M4 is next.**
+**Development status: M1–M3 complete; M4 is under validation.**
 See the [M1 verification report](docs/milestones/M1.md) for measured results.
 The [M2 verification report](docs/milestones/M2.md) records capture tests and timing gates.
 The [M3 verification report](docs/milestones/M3.md) records history, rewind and tracking validation.
 This build implements the dispatcher, explicit loop capture, per-file history,
 compare, undoable rewind, pins and explicit tracking. All three operating systems
-passed functional and performance acceptance. Automatic capture, auto-staging commits and
-the UI arrive later. Do not alias `git` to this development build.
+passed M3 functional and performance acceptance. M4 setup, hook capture and commit
+handling are under validation; the UI arrives later. Do not alias `git` to this
+development build. See the [M4 report](docs/milestones/M4.md).
 
 ## Build on GitHub (preferred for this project)
 
@@ -164,6 +165,49 @@ rewind pins recover after a crash without clearing permanent user pins. A short
 per-worktree writing marker supports recovery and suppresses Paradox's own writes;
 it is consumed so later external edits are captured normally. These commands
 never install hooks or start a watcher.
+
+## Setup and commits (M4, under validation)
+
+```text
+paradox init
+paradox commit -m "commit all changes"
+paradox commit src/a.ts src/b.ts -m "commit selected files"
+paradox src/a.ts commit -m "file first"
+paradox init --print-agent-rule --guide-path docs/PARADOX_AGENT_GUIDE.md
+paradox init --print-editor-config neovim
+paradox init --uninstall
+```
+
+Init merges an asynchronous (`isAsync: true`) `paradox loop "${file}"` command
+into VS Code/Cursor's Run-on-Save settings, recommends `emeraldwalk.runonsave`,
+and merges a Claude PostToolUse hook for Edit/Write/MultiEdit. Install/enable the
+recommended extension in the editor for its save event to run. The AI adapter
+reads JSON from stdin and passes edited file paths directly to capture without
+shell interpolation. Tools without an edit hook will use the manually started
+watcher in M4.5; init never starts it. Print-only options install nothing and
+work outside a Git repository. Other snippet choices are `jetbrains` and `sublime`.
+
+Existing editor settings, JSONC comments/trailing commas and unrelated hooks are
+preserved. Git hooks honor `core.hooksPath` and run existing executable hooks
+first. Shared Git hooks have repository-wide ownership; editor/AI config belongs
+to each worktree. Uninstall removes only matching owned entries and restores
+original hooks after their last initialized worktree uninstalls. Edited managed
+hooks are retained with a message. Loop history is retained after uninstall.
+
+Commit auto-stages everything, or only the supplied paths. Git prepares the commit
+normally; Paradox then strips valid message lines from the staged bytes while
+preserving modes and all remaining bytes. Working files keep their message lines,
+so Git can report them modified after commit. Capture failures are logged;
+stripping errors stop the commit to prevent message leakage. `paradox commit
+--no-verify` skips user pre-commit/commit-msg checks while still stripping; raw
+`git commit --no-verify` retains Git's normal hook-bypass behavior. A normal raw
+Git commit uses the installed stripping and retention hooks.
+
+After commit, retention removes unpinned loops older than the third most recent
+commit. Pinned loops, current uncommitted work and history whose ancestry cannot
+be safely established remain. Fewer than three commits purge nothing. Retention
+and GC remain subject to the storage cap; pins protect loops from both. A retained
+marker alone does not disable retention. Other worktrees purge their own loops.
 
 ## Verification
 

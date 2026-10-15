@@ -164,32 +164,55 @@ pub fn commit(args: &[OsString], index: usize, file: Option<usize>) -> Result<i3
         let arg = if !after_dash {
             if let Some(text) = original.to_str() {
                 if text.starts_with("--no-veri") && "--no-verify".starts_with(text) {
-                    no_verify = true; i += 1; continue;
+                    no_verify = true;
+                    i += 1;
+                    continue;
                 }
-                if (text.starts_with("--veri") && "--verify".starts_with(text)) || text == "--no-no-verify" {
-                    no_verify = false; i += 1; continue;
+                if (text.starts_with("--veri") && "--verify".starts_with(text))
+                    || text == "--no-no-verify"
+                {
+                    no_verify = false;
+                    i += 1;
+                    continue;
                 }
                 if text.starts_with('-') && !text.starts_with("--") {
                     let mut flags = String::from("-");
                     let mut chars = text[1..].chars();
                     while let Some(flag) = chars.next() {
-                        if flag == 'n' { no_verify = true; continue; }
+                        if flag == 'n' {
+                            no_verify = true;
+                            continue;
+                        }
                         flags.push(flag);
-                        if matches!(flag, 'm' | 'F' | 'C' | 'c' | 't' | 'S' | 'u') { flags.extend(chars); break; }
+                        if matches!(flag, 'm' | 'F' | 'C' | 'c' | 't' | 'S' | 'u') {
+                            flags.extend(chars);
+                            break;
+                        }
                     }
-                    if flags == "-" && text != "-" { i += 1; continue; }
+                    if flags == "-" && text != "-" {
+                        i += 1;
+                        continue;
+                    }
                     normalized = OsString::from(flags);
                     &normalized
-                } else { original }
-            } else { original }
-        } else { original };
+                } else {
+                    original
+                }
+            } else {
+                original
+            }
+        } else {
+            original
+        };
         let text = arg.to_string_lossy();
         if !after_dash && matches!(text.as_ref(), "-n" | "--no-verify") {
             no_verify = true;
             i += 1;
             continue;
         }
-        if !after_dash && text == "--" { separator = Some(commit_args.len()); }
+        if !after_dash && text == "--" {
+            separator = Some(commit_args.len());
+        }
         commit_args.push(arg.clone());
         if after_dash {
             paths.push(arg.clone());
@@ -198,10 +221,16 @@ pub fn commit(args: &[OsString], index: usize, file: Option<usize>) -> Result<i3
         } else if text == "--pathspec-file-nul" || text.starts_with("--pathspec-from-file=") {
             if text == "--pathspec-from-file=-" {
                 let temporary = pathspec_stdin()?;
-                let replacement = OsString::from(format!("--pathspec-from-file={}", temporary.path().display()));
+                let replacement = OsString::from(format!(
+                    "--pathspec-from-file={}",
+                    temporary.path().display()
+                ));
                 *commit_args.last_mut().context("missing pathspec option")? = replacement.clone();
-                stage_options.push(replacement); pathspec_input = Some(temporary);
-            } else { stage_options.push(arg.clone()); }
+                stage_options.push(replacement);
+                pathspec_input = Some(temporary);
+            } else {
+                stage_options.push(arg.clone());
+            }
         } else if matches!(
             text.as_ref(),
             "-m" | "--message"
@@ -224,8 +253,13 @@ pub fn commit(args: &[OsString], index: usize, file: Option<usize>) -> Result<i3
             let mut chars = text[1..].chars();
             let mut needs_value = false;
             while let Some(flag) = chars.next() {
-                if matches!(flag, 'm' | 'F' | 'C' | 'c' | 't') { needs_value = chars.next().is_none(); break; }
-                if matches!(flag, 'S' | 'u') { break; }
+                if matches!(flag, 'm' | 'F' | 'C' | 'c' | 't') {
+                    needs_value = chars.next().is_none();
+                    break;
+                }
+                if matches!(flag, 'S' | 'u') {
+                    break;
+                }
             }
             needs_value
         }) {
@@ -236,9 +270,13 @@ pub fn commit(args: &[OsString], index: usize, file: Option<usize>) -> Result<i3
                 if value == "-" {
                     let temporary = pathspec_stdin()?;
                     let replacement = temporary.path().as_os_str().to_owned();
-                    *commit_args.last_mut().context("missing pathspec value")? = replacement.clone();
-                    stage_options.extend([arg.clone(), replacement]); pathspec_input = Some(temporary);
-                } else { stage_options.extend([arg.clone(), value.clone()]); }
+                    *commit_args.last_mut().context("missing pathspec value")? =
+                        replacement.clone();
+                    stage_options.extend([arg.clone(), replacement]);
+                    pathspec_input = Some(temporary);
+                } else {
+                    stage_options.extend([arg.clone(), value.clone()]);
+                }
             }
         } else if !text.starts_with('-') {
             paths.push(arg.clone());
@@ -312,7 +350,9 @@ pub fn commit(args: &[OsString], index: usize, file: Option<usize>) -> Result<i3
 }
 
 fn pathspec_stdin() -> Result<tempfile::NamedTempFile> {
-    let mut file = tempfile::Builder::new().prefix("paradox-pathspec-").tempfile()?;
+    let mut file = tempfile::Builder::new()
+        .prefix("paradox-pathspec-")
+        .tempfile()?;
     std::io::copy(&mut std::io::stdin().lock(), &mut file)?;
     file.as_file().sync_all()?;
     Ok(file)

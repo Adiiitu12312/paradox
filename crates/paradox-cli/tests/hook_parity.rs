@@ -96,10 +96,16 @@ fn verify_after_no_verify_restores_user_hook_rejection() {
     );
     fs::write(root.join("a.ts"), "//> do not leak\nchanged\n").unwrap();
     let before = git(root, &["rev-parse", "HEAD"]);
-    let output = px(root, &["commit", "--no-verify", "--verify", "-m", "blocked"]);
+    let output = px(
+        root,
+        &["commit", "--no-verify", "--verify", "-m", "blocked"],
+    );
     assert!(!output.status.success());
     assert_eq!(git(root, &["rev-parse", "HEAD"]), before);
-    assert_eq!(fs::read_to_string(root.join("user-hook-ran")).unwrap(), "rejected");
+    assert_eq!(
+        fs::read_to_string(root.join("user-hook-ran")).unwrap(),
+        "rejected"
+    );
 }
 
 #[test]
@@ -107,7 +113,17 @@ fn shared_worktree_hook_installation_is_idempotent_and_last_uninstall_restores_o
     let temp = fixture();
     let root = temp.path();
     let second = tempfile::tempdir().unwrap();
-    git(root, &["worktree", "add", "-q", "-b", "second", second.path().to_str().unwrap()]);
+    git(
+        root,
+        &[
+            "worktree",
+            "add",
+            "-q",
+            "-b",
+            "second",
+            second.path().to_str().unwrap(),
+        ],
+    );
     let hook = root.join(".git/hooks/pre-commit");
     let original = "#!/bin/sh\n# preserve original bytes\nprintf original > original-hook-ran\n";
     script(&hook, original);
@@ -116,14 +132,20 @@ fn shared_worktree_hook_installation_is_idempotent_and_last_uninstall_restores_o
     ok(px(second.path(), &["init"]));
     ok(px(second.path(), &["init"]));
     assert_eq!(fs::read(&hook).unwrap(), managed);
-    assert_eq!(fs::read(root.join(".git/hooks/pre-commit.paradox-original")).unwrap(), original.as_bytes());
+    assert_eq!(
+        fs::read(root.join(".git/hooks/pre-commit.paradox-original")).unwrap(),
+        original.as_bytes()
+    );
     ok(px(second.path(), &["init", "--uninstall"]));
     assert_eq!(fs::read(&hook).unwrap(), managed);
     fs::write(root.join("a.ts"), "//> shared hook\nchanged\n").unwrap();
     git(root, &["add", "a.ts"]);
     git(root, &["commit", "-qm", "shared hook still installed"]);
     assert_eq!(git(root, &["show", "HEAD:a.ts"]), "changed\n");
-    assert_eq!(fs::read_to_string(root.join("original-hook-ran")).unwrap(), "original");
+    assert_eq!(
+        fs::read_to_string(root.join("original-hook-ran")).unwrap(),
+        "original"
+    );
     ok(px(root, &["init", "--uninstall"]));
     assert_eq!(fs::read(&hook).unwrap(), original.as_bytes());
     assert!(!root.join(".git/hooks/pre-commit.paradox-original").exists());
@@ -136,9 +158,18 @@ fn non_executable_hooks_remain_ignored_by_wrapper_and_installed_hooks() {
     for installed in [false, true] {
         let temp = fixture();
         let root = temp.path();
-        for event in ["pre-commit", "post-commit", "commit-msg", "prepare-commit-msg"] {
+        for event in [
+            "pre-commit",
+            "post-commit",
+            "commit-msg",
+            "prepare-commit-msg",
+        ] {
             let path = root.join(".git/hooks").join(event);
-            fs::write(&path, "#!/bin/sh\nprintf unexpected > ignored-hook-ran\nexit 37\n").unwrap();
+            fs::write(
+                &path,
+                "#!/bin/sh\nprintf unexpected > ignored-hook-ran\nexit 37\n",
+            )
+            .unwrap();
             fs::set_permissions(path, fs::Permissions::from_mode(0o644)).unwrap();
         }
         if installed {
@@ -165,8 +196,14 @@ fn executable_symlink_hooks_preserve_prepare_and_commit_message_callbacks() {
     let temp = fixture();
     let root = temp.path();
     for (event, body) in [
-        ("prepare-commit-msg", "#!/bin/sh\nprintf 'prepared\\n' >> hook-order\nprintf ' prepared' >> \"$1\"\n"),
-        ("commit-msg", "#!/bin/sh\nprintf 'checked\\n' >> hook-order\ngrep -q prepared \"$1\" || exit 38\n"),
+        (
+            "prepare-commit-msg",
+            "#!/bin/sh\nprintf 'prepared\\n' >> hook-order\nprintf ' prepared' >> \"$1\"\n",
+        ),
+        (
+            "commit-msg",
+            "#!/bin/sh\nprintf 'checked\\n' >> hook-order\ngrep -q prepared \"$1\" || exit 38\n",
+        ),
     ] {
         let target = root.join(format!("{event}-target"));
         script(&target, body);
@@ -174,7 +211,10 @@ fn executable_symlink_hooks_preserve_prepare_and_commit_message_callbacks() {
     }
     fs::write(root.join("a.ts"), "//> symlink hook\nchanged\n").unwrap();
     ok(px(root, &["commit", "a.ts", "-m", "symlink hooks"]));
-    assert_eq!(fs::read_to_string(root.join("hook-order")).unwrap(), "prepared\nchecked\n");
+    assert_eq!(
+        fs::read_to_string(root.join("hook-order")).unwrap(),
+        "prepared\nchecked\n"
+    );
     assert!(git(root, &["log", "-1", "--format=%B"]).contains("prepared"));
     assert_eq!(git(root, &["show", "HEAD:a.ts"]), "changed\n");
 }
