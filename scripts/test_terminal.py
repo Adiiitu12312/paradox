@@ -186,6 +186,14 @@ def main():
             assert results[0][0] == results[1][0], results
         print(f"PASS: prompt Ctrl+C exit and Git status forwarding ({results[0][0]}, {results[1][0]})")
 
+        for text in ["//> first loop\nfirst loop body\n", "//> second loop\nsecond loop body\n"]:
+            (root / "file.txt").write_text(text)
+            subprocess.run([binary, "loop", "file.txt"], cwd=root, env=env, check=True,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        compared = terminal(binary, ["compare", "file.txt", "HEAD", "working"], root, env)
+        assert compared[0] == 0 and b"\x1b[32m" in compared[1] and b"\x1b[31m" in compared[1], compared
+        print("PASS: Paradox compare colors additions and removals on a real terminal")
+
 
 if __name__ == "__main__":
     main()

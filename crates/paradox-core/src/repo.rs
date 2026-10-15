@@ -107,7 +107,12 @@ impl Repo {
             .duration_since(std::time::UNIX_EPOCH)
             .ok()?
             .as_nanos();
-        Some(format!("{time}:{}", meta.len()))
+        let extra = match std::fs::symlink_metadata(self.store.join("tracked.toml")) {
+            Ok(meta) if meta.is_file() => format!("{}:{}", meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos(), meta.len()),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => "none".into(),
+            _ => return None,
+        };
+        Some(format!("{time}:{}:{extra}", meta.len()))
     }
 
     pub fn relative(&self, input: &Path) -> Result<String> {
@@ -145,12 +150,14 @@ impl Repo {
         let mut args = vec!["--literal-pathspecs", "ls-files", "--cached", "-z", "--"];
         args.extend(selected.iter().map(String::as_str));
         let output = self.git(&args)?;
-        Ok(output
+        let mut tracked: HashSet<String> = output
             .stdout
             .split(|b| *b == 0)
             .filter(|p| !p.is_empty())
             .filter_map(|p| std::str::from_utf8(p).ok().map(str::to_owned))
-            .collect())
+            .collect();
+        tracked.extend(self.extra_tracked()?.into_iter().filter(|path| selected.is_empty() || selected.iter().any(|input| path == input || path.starts_with(&format!("{input}/")))));
+        Ok(tracked)
     }
 
     pub fn dirty(&self) -> Result<HashSet<String>> {
@@ -175,6 +182,7 @@ impl Repo {
                 let _ = entries.next();
             }
         }
+        dirty.extend(self.extra_tracked()?);
         Ok(dirty)
     }
 

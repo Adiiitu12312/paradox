@@ -2,9 +2,11 @@
 pub mod blob;
 pub mod config;
 pub mod git;
+pub mod history;
 pub mod message;
 pub mod repo;
 pub mod store;
+pub mod tracking;
 
 pub(crate) fn fault(point: &str) {
     #[cfg(feature = "fault-injection")]

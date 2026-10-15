@@ -12,6 +12,7 @@ name = "paradox"
 path = "src/main.rs"
 
 [dependencies]
+anyhow = "1"
 paradox-core.workspace = true
 clap.workspace = true
 
