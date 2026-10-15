@@ -5,6 +5,7 @@ import { ApiError, connectSession, createApi } from './api'
 import { DiffPanel } from './DiffPanel'
 import { displayPath, relativeDate, shortRef } from './format'
 import { deriveGraph } from './graph'
+import { GitWorkflows } from './GitWorkflows'
 import type { CommitDetail, Diff, DiffQuery, FileChange, GitCommand, GraphPage, Selection, Status, WorkspaceApi } from './types'
 
 function errorMessage(error: unknown) { return error instanceof Error ? error.message : 'The operation could not finish.' }
@@ -18,7 +19,8 @@ export function App({ api: suppliedApi, session = true }: { api?: WorkspaceApi; 
   const [graph, setGraph] = useState<GraphPage | null>(null)
   const [cursors, setCursors] = useState<(string | undefined)[]>([undefined])
   const [page, setPage] = useState(0)
-  const [tab, setTab] = useState<'graph' | 'changes'>('changes')
+  const [tab, setTab] = useState<'graph' | 'changes' | 'workflows'>('changes')
+  const [workflowsOpened, setWorkflowsOpened] = useState(false)
   const [detail, setDetail] = useState<CommitDetail | null>(null)
   const [query, setQuery] = useState<DiffQuery | null>(null)
   const [diff, setDiff] = useState<Diff | null>(null)
@@ -92,14 +94,14 @@ export function App({ api: suppliedApi, session = true }: { api?: WorkspaceApi; 
   return <div className="workspace">
     <aside className="sidebar"><a className="brand" href="/" aria-label="Paradox workspace"><svg width="27" height="27" viewBox="0 0 28 28" fill="none" aria-hidden="true"><path d="M5 22V6h10a6 6 0 0 1 0 12H9M10 22V11h5a1 1 0 0 1 0 2h-5" stroke="currentColor" strokeWidth="2" /></svg>paradox<span className="version">local</span></a>
       <div className="repo-label"><span className="eyebrow">WORKSPACE</span><strong title={status?.repo.root}>{status?.repo.name ?? 'Connecting…'}</strong><span className="mono muted truncate">{status?.repo.branch ?? (status?.repo.unborn ? 'No commits yet' : 'Detached HEAD')}</span></div>
-      <nav aria-label="Workspace"><button aria-current={tab === 'changes' ? 'page' : undefined} onClick={() => { setTab('changes'); setDetail(null); setQuery(null); setDiff(null) }}><FileIcon />Changes<span className="count">{status?.files.length ?? '—'}</span></button><button aria-current={tab === 'graph' ? 'page' : undefined} onClick={() => { setTab('graph'); setQuery(null); setDiff(null) }}><CommitIcon />History</button></nav>
+      <nav aria-label="Workspace"><button aria-current={tab === 'changes' ? 'page' : undefined} onClick={() => { setTab('changes'); setDetail(null); setQuery(null); setDiff(null) }}><FileIcon />Changes<span className="count">{status?.files.length ?? '—'}</span></button><button aria-current={tab === 'graph' ? 'page' : undefined} onClick={() => { setTab('graph'); setQuery(null); setDiff(null) }}><CommitIcon />History</button><button aria-current={tab === 'workflows' ? 'page' : undefined} onClick={() => { setWorkflowsOpened(true); setTab('workflows') }}><CommitIcon />Git workflows</button></nav>
       <div className="sidebar-note"><span className={`status-dot ${connection === 'connected' ? 'online' : ''}`} />{connection === 'connected' ? 'Local session' : connection === 'closed' ? 'Session disconnected' : 'Connecting session'}<p>Git on your machine.<br />Your files stay here.</p></div>
     </aside>
-    <main className="main"><header className="topbar"><div><span className="muted">Workspace</span><ChevronRightIcon /><h1>{tab === 'changes' ? 'Changes' : 'History'}</h1></div><div className="toolbar"><button className="icon-button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} onClick={toggleTheme}>{theme === 'dark' ? <SunIcon /> : <MoonIcon />}</button><button disabled={busy} onClick={refresh}><ReloadIcon />Refresh</button></div></header>
+    <main className="main"><header className="topbar"><div><span className="muted">Workspace</span><ChevronRightIcon /><h1>{tab === 'changes' ? 'Changes' : tab === 'workflows' ? 'Git workflows' : 'History'}</h1></div><div className="toolbar"><button className="icon-button" aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} theme`} onClick={toggleTheme}>{theme === 'dark' ? <SunIcon /> : <MoonIcon />}</button><button disabled={busy} onClick={refresh}><ReloadIcon />Refresh</button></div></header>
       {error && <div role="alert" className="banner error">{error}<button onClick={() => setError('')}>Dismiss</button></div>}
       {notice && <div role="status" className="banner notice">{notice}</div>}
       {connection === 'closed' && session && <div className="banner error">Session ended. Run <code>paradox ui</code> again to reconnect.</div>}
-      {loading ? <div className="loading" role="status">Opening local repository…</div> : !status ? <div className="empty"><h2>Workspace unavailable</h2><p>Start this interface with <code>paradox ui</code> from a Git repository.</p><button onClick={refresh}>Try again</button></div> : <div className="content">
+      {loading ? <div className="loading" role="status">Opening local repository…</div> : !status ? <div className="empty"><h2>Workspace unavailable</h2><p>Start this interface with <code>paradox ui</code> from a Git repository.</p><button onClick={refresh}>Try again</button></div> : <div className="content" hidden={tab === 'workflows'}>
         {tab === 'changes' ? <>
           <aside className="files-pane"><header className="pane-heading"><div><span className="eyebrow">WORKING DIRECTORY</span><h2>{status.files.length} changed files</h2></div></header>
             <FileList title="Staged" files={staged} selected={query} view="staged" busy={busy} select={selectFile} apply={apply} />
@@ -111,6 +113,7 @@ export function App({ api: suppliedApi, session = true }: { api?: WorkspaceApi; 
         </> : <><section className="history-pane"><header className="pane-heading"><div><span className="eyebrow">COMMIT GRAPH</span><h2>{status.repo.branch ?? 'Repository history'}</h2></div><span className="muted">Page {page + 1}</span></header><Graph key={page} graph={graph} selected={detail?.sha} select={selectCommit} /><footer className="pagination"><button disabled={busy || page === 0} onClick={() => void turnPage(page - 1)}>Newer</button><span className="muted">{graph?.commits.length ?? 0} commits</span><button disabled={busy || !graph?.next_cursor} onClick={() => void turnPage(page + 1)}>Older</button></footer></section>
           <section className="commit-detail">{detail ? <><header className="pane-heading"><div><span className="eyebrow">{detail.sha.slice(0, 12)}</span><h2>{detail.subject}</h2></div></header><div className="commit-meta"><strong>{detail.author_name}</strong><span className="muted">{detail.author_email}</span><time>{new Date(detail.time * 1000).toLocaleString()}</time><pre>{detail.message}</pre></div><div className="commit-files">{detail.files.map(file => <button key={file.path} onClick={() => selectFile(file.path, 'staged', detail.sha)}><span className="file-status">{file.status}</span><span className="truncate mono">{displayPath(file.path)}</span><span className="additions">{file.additions === null ? '' : `+${file.additions}`}</span><span className="deletions">{file.deletions === null ? '' : `−${file.deletions}`}</span></button>)}</div>{query && (diff ? <DiffPanel key={diff.token + diff.path} diff={diff} busy={busy} theme={theme} apply={apply} /> : <div className="loading">Reading commit diff…</div>)}</> : <div className="empty"><CommitIcon width={28} height={28} /><h2>Select a commit</h2><p>Inspect the message, author, and changed files.</p></div>}</section></>}
       </div>}
+      {status && workflowsOpened && <div className="workflow-container" hidden={tab !== 'workflows'}><GitWorkflows record={record} status={status} onChanged={refresh} onBusy={setBusy} /></div>}
       <details className="command-log"><summary>Git command log <span className="muted">{commands.length} recent commands</span></summary><div>{commands.length ? commands.map((command, index) => <section key={index}><code>{command.argv.map(argument => JSON.stringify(argument)).join(' ')}</code><span className={command.exit_code ? 'deletions' : 'muted'}>exit {command.exit_code}</span>{command.stderr && <pre>{command.stderr}</pre>}</section>) : <p className="muted">Commands appear here as you work.</p>}</div></details>
     </main>
     <dialog ref={amendDialog}><h2>Amend the latest commit?</h2><p>This replaces the current HEAD commit. If it was already pushed, coordinate with collaborators before rewriting shared history.</p><div className="toolbar"><button onClick={() => amendDialog.current?.close()}>Cancel</button><button className="primary" onClick={() => void commit()}>Amend commit</button></div></dialog>

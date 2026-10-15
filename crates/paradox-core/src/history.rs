@@ -155,7 +155,7 @@ impl LoopStore {
             .join(format!("writing-{}.toml", self.repo.worktree))
     }
 
-    fn remove_writing_marker(&self) -> Result<()> {
+    pub(crate) fn remove_writing_marker(&self) -> Result<()> {
         let path = self.marker_path();
         reject_link(&path)?;
         match fs::remove_file(path) {
@@ -680,7 +680,7 @@ impl LoopStore {
         Ok(preview)
     }
 
-    fn writing_marker(&mut self, path: &str, hash: &str, deleted: bool) -> Result<()> {
+    pub(crate) fn writing_marker(&mut self, path: &str, hash: &str, deleted: bool) -> Result<()> {
         let marker = toml::to_string(&WritingMarker {
             worktree: self.repo.worktree.clone(),
             pid: std::process::id(),

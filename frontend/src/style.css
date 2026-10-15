@@ -4,12 +4,12 @@
 :root[data-theme=light] { color-scheme: light; --bg: #fcfdfc; --panel: #f5f7f5; --raised: #edf1ed; --line: #dde3dd; --text: #253029; --muted: #69786e; --accent: #357b51; --selected: #e0eee4; --red: #b74f48; }
 * { box-sizing: border-box; }
 body { margin: 0; }
-button, textarea, input { font: inherit; }
+button, textarea, input, select { font: inherit; }
 button { display: inline-flex; align-items: center; justify-content: center; gap: 7px; min-height: 30px; padding: 5px 10px; border: 1px solid var(--line); border-radius: 5px; background: var(--raised); color: var(--text); cursor: pointer; white-space: nowrap; }
 button:hover:not(:disabled) { border-color: var(--muted); }
 button:active:not(:disabled) { transform: translateY(1px); }
 button:disabled { opacity: .4; cursor: default; }
-button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible, textarea:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
+button:focus-visible, a:focus-visible, summary:focus-visible, input:focus-visible, textarea:focus-visible, select:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; }
 a { color: inherit; text-decoration: none; }
 h1,h2,h3,p { margin: 0; }
 h1 { font-size: 14px; font-weight: 550; }
@@ -113,5 +113,47 @@ dialog { max-width: 440px; border: 1px solid var(--line); border-radius: 8px; pa
 dialog::backdrop { background: #0008; }
 dialog p { color: var(--muted); line-height: 1.7; margin: 14px 0 22px; }
 dialog .toolbar { justify-content: flex-end; }
+[hidden] { display: none !important; }
+.workflow-container { flex: 1; min-height: 0; overflow: auto; }
+.git-workflows { min-width: 0; }
+.workflow-tabs { display: flex; flex-wrap: wrap; padding: 8px 20px; border-bottom: 1px solid var(--line); }
+.workflow-body { padding: 20px; }
+.workflow-body h3 { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.workflow-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 28px; }
+.workflow-columns > section { min-width: 0; }
+.workflow-list { margin-bottom: 20px; }
+.workflow-list > div { display: flex; align-items: center; gap: 10px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.workflow-list > div > div { flex: 1; min-width: 0; }
+.workflow-list p { font-size: 11px; margin-top: 5px; overflow-wrap: anywhere; }
+.workflow-list strong { font-size: 12px; }
+.workflow-form { display: grid; gap: 12px; max-width: 640px; margin-bottom: 22px; }
+.workflow-form label { display: grid; gap: 6px; font-size: 11px; color: var(--muted); }
+.workflow-form .checkbox { display: flex; }
+.workflow-form input:not([type=checkbox]), .workflow-form select { color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 4px; padding: 8px; min-width: 0; width: 100%; }
+.workflow-form > button { justify-self: start; }
+.workflow-form p { font-size: 11px; line-height: 1.7; }
+.advanced-actions { padding-top: 22px; border-top: 1px solid var(--line); }
+.action-confirmation { max-width: 650px; max-height: 85dvh; overflow: auto; }
+.action-confirmation li { padding: 5px 0; overflow-wrap: anywhere; font-size: 12px; line-height: 1.6; }
+.action-confirmation ul { padding-left: 20px; }
+.action-confirmation .banner { display: block; margin: 10px 0; }
+.operation-progress { border-top: 1px solid var(--line); padding: 14px 20px; }
+.operation-progress header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.operation-progress [role=log] { background: var(--bg); max-height: 220px; overflow: auto; padding: 12px; }
+.operation-progress pre { font-size: 11px; white-space: pre-wrap; overflow-wrap: anywhere; margin: 0 0 4px; }
+.blame-lines { overflow: auto; border: 1px solid var(--line); }
+.blame-lines > div { display: grid; grid-template-columns: 170px 50px minmax(400px,1fr); gap: 10px; padding: 3px 10px; min-width: 700px; font-size: 10px; }
+.blame-lines > div:nth-child(even) { background: var(--panel); }
+.blame-lines > div > span { overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+.blame-lines pre { margin: 0; white-space: pre; font-size: 11px; }
+.conflict-columns { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 12px; margin-top: 16px; }
+.conflict-columns section { border: 1px solid var(--line); min-width: 0; }
+.conflict-columns header { display: flex; gap: 10px; justify-content: space-between; align-items: start; padding: 10px; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+.conflict-columns header h3 { margin: 0; }
+.conflict-columns button { font-size: 10px; }
+.conflict-version { padding: 12px; height: 340px; margin: 0; overflow: auto; font-size: 11px; }
+.result-editor { display: block; color: var(--muted); font-size: 10px; padding: 10px; }
+.result-editor textarea { display: block; width: 100%; height: 310px; font: 11px/1.6 'Geist Mono Variable',monospace; color: var(--text); background: var(--bg); padding: 8px; border: 1px solid var(--line); resize: vertical; }
+@media(max-width: 1050px) { .workflow-columns { grid-template-columns: 1fr; } .conflict-columns { grid-template-columns: 1fr; } }
 @media(max-width: 1050px) { .workspace { grid-template-columns: 160px minmax(0,1fr); } .content { grid-template-columns: 265px minmax(0,1fr); } .content:has(.history-pane) { grid-template-columns: minmax(280px,1fr) minmax(250px,1fr); } .ref-badge { display: none; } }
 @media(max-width: 760px) { .workspace { display: block; height: auto; min-height: 100dvh; overflow: auto; } .sidebar { flex-direction: row; align-items: center; gap: 15px; padding: 12px; border-bottom: 1px solid var(--line); } .brand { font-size: 18px; } .repo-label,.sidebar-note,.version { display: none; } nav { display: flex; margin-left: auto; } nav button { padding: 6px; font-size: 12px; } .main { min-height: calc(100dvh - 60px); } .topbar { min-height: 55px; padding: 10px 15px; } .content,.content:has(.history-pane) { display: flex; flex-direction: column; overflow: visible; } .files-pane { border-right: none; border-bottom: 1px solid var(--line); max-height: 50dvh; } .viewer { min-height: 450px; } .code-diff { height: 400px; flex: auto; } .history-pane { min-height: 450px; height: 55dvh; border-right: none; } .commit-detail { min-height: 200px; overflow: visible; } .selection-panel { max-height: 350px; } .command-log { margin-top: auto; } }

@@ -7,10 +7,10 @@ use axum::{
     },
     http::{Method, StatusCode, header},
     middleware::{self, Next},
-    response::{IntoResponse, Redirect, Response},
+    response::{IntoResponse, Redirect, Response, Sse, sse::KeepAlive},
     routing::{get, post},
 };
-use paradox_core::{repo::Repo, ui_git};
+use paradox_core::{repo::Repo, ui_actions, ui_git};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
@@ -41,6 +41,7 @@ struct Shared {
     tabs: AtomicUsize,
     generation: AtomicU64,
     shutdown: watch::Sender<bool>,
+    operations: Arc<crate::operations::Operations>,
 }
 type App = Arc<Shared>;
 fn failure(status: StatusCode, code: &str, error: impl ToString) -> Response {
@@ -125,7 +126,7 @@ where
         Ok(Ok(value)) => Json(value).into_response(),
         Ok(Err(error)) => {
             if let Some(action) = error.downcast_ref::<ui_git::ActionError>() {
-                let status = if action.code == "stale_diff" {
+                let status = if matches!(action.code, "stale_diff" | "stale_plan" | "operation_busy") {
                     StatusCode::CONFLICT
                 } else {
                     StatusCode::UNPROCESSABLE_ENTITY
@@ -169,13 +170,71 @@ async fn diff(State(app): State<App>, Query(query): Query<DiffQuery>) -> Respons
     .await
 }
 async fn stage(State(app): State<App>, Json(request): Json<ui_git::StageRequest>) -> Response {
-    blocking(move || ui_git::stage(app.repo.clone(), request, false)).await
+    let repo = app.repo.clone();
+    blocking_edit(app, move || ui_git::stage(repo, request, false)).await
 }
 async fn unstage(State(app): State<App>, Json(request): Json<ui_git::StageRequest>) -> Response {
-    blocking(move || ui_git::stage(app.repo.clone(), request, true)).await
+    let repo = app.repo.clone();
+    blocking_edit(app, move || ui_git::stage(repo, request, true)).await
 }
 async fn commit(State(app): State<App>, Json(request): Json<ui_git::CommitRequest>) -> Response {
-    blocking(move || ui_git::commit(app.repo.clone(), request, &std::env::current_exe()?)).await
+    let repo = app.repo.clone();
+    blocking_edit(app, move || ui_git::commit(repo, request, &std::env::current_exe()?)).await
+}
+async fn blocking_edit<F>(app: App, operation: F) -> Response
+where F: FnOnce() -> Result<Value> + Send + 'static {
+    blocking(move || {
+        let _guard = app.operations.mutation.try_lock().map_err(|_| ui_git::ActionError {
+            code: "operation_busy", message: "Another Git operation is running".to_owned(), commands: vec![],
+        })?;
+        if app.operations.busy() {
+            return Err(ui_git::ActionError { code: "operation_busy", message: "Another Git operation is running".to_owned(), commands: vec![] }.into());
+        }
+        operation()
+    }).await
+}
+async fn actions_state(State(app): State<App>) -> Response {
+    blocking(move || ui_actions::state(app.repo.clone())).await
+}
+#[derive(Deserialize)]
+struct FileQuery { path: String, revision: Option<String>, cursor: Option<String> }
+async fn blame(State(app): State<App>, Query(query): Query<FileQuery>) -> Response {
+    blocking(move || ui_actions::blame(app.repo.clone(), &query.path, query.revision.as_deref())).await
+}
+async fn file_history(State(app): State<App>, Query(query): Query<FileQuery>) -> Response {
+    blocking(move || ui_actions::history(app.repo.clone(), &query.path, query.cursor.as_deref())).await
+}
+async fn conflict(State(app): State<App>, Query(query): Query<FileQuery>) -> Response {
+    blocking(move || ui_actions::conflict(app.repo.clone(), &query.path)).await
+}
+async fn resolve_conflict(State(app): State<App>, Json(request): Json<ui_actions::ResolveRequest>) -> Response {
+    let repo = app.repo.clone();
+    blocking_edit(app, move || ui_actions::resolve_conflict(repo, request)).await
+}
+async fn preview_action(State(app): State<App>, Json(action): Json<ui_actions::Action>) -> Response {
+    blocking(move || {
+        let plan = ui_actions::preview(app.repo.clone(), action)?;
+        app.operations.remember(plan)
+    }).await
+}
+#[derive(Deserialize)]
+struct StartAction { action: ui_actions::Action, confirmation_token: Option<String> }
+async fn start_action(State(app): State<App>, Json(request): Json<StartAction>) -> Response {
+    match app.operations.start(app.repo.clone(), request.action, request.confirmation_token) {
+        Ok(id) => Json(json!({"operation_id":id, "commands":[]})).into_response(),
+        Err(error) => failure(StatusCode::CONFLICT, "operation_not_started", error),
+    }
+}
+async fn progress(State(app): State<App>, Path(id): Path<String>, request: Request) -> Response {
+    let Some(operation) = app.operations.get(&id) else { return failure(StatusCode::NOT_FOUND, "not_found", "Operation not found"); };
+    let after = request.headers().get("last-event-id").and_then(|value| value.to_str().ok()).and_then(|value| value.parse::<u64>().ok()).unwrap_or(0);
+    Sse::new(operation.stream(after)).keep_alive(KeepAlive::default()).into_response()
+}
+async fn cancel_action(State(app): State<App>, Path(id): Path<String>) -> Response {
+    match app.operations.get(&id) {
+        Some(operation) => { operation.cancel(); Json(json!({"cancelling":true,"commands":[]})).into_response() },
+        None => failure(StatusCode::NOT_FOUND, "not_found", "Operation not found"),
+    }
 }
 async fn asset(State(app): State<App>, request: Request) -> Response {
     let path = request.uri().path().to_owned();
@@ -240,6 +299,7 @@ pub async fn serve(
         tabs: AtomicUsize::new(0),
         generation: AtomicU64::new(0),
         shutdown,
+        operations: Arc::new(crate::operations::Operations::default()),
     });
     let router = Router::new()
         .route("/api/status", get(status))
@@ -250,15 +310,26 @@ pub async fn serve(
         .route("/api/unstage", post(unstage))
         .route("/api/commit", post(commit))
         .route("/api/session", get(session))
+        .route("/api/actions/state", get(actions_state))
+        .route("/api/actions/blame", get(blame))
+        .route("/api/actions/history", get(file_history))
+        .route("/api/actions/conflict", get(conflict))
+        .route("/api/actions/resolve", post(resolve_conflict))
+        .route("/api/actions/preview", post(preview_action))
+        .route("/api/actions/start", post(start_action))
+        .route("/api/operations/{id}/events", get(progress))
+        .route("/api/operations/{id}/cancel", post(cancel_action))
         .fallback(asset)
         .layer(DefaultBodyLimit::max(2_097_152))
         .layer(middleware::from_fn_with_state(app.clone(), authenticate))
         .with_state(app.clone());
     let shutdown_sender = app.shutdown.clone();
+    let operations = app.operations.clone();
     delayed_shutdown(app, 0, Duration::from_secs(60));
     on_ready(UiReady { address, url });
     axum::serve(listener, router).with_graceful_shutdown(async move {
         tokio::select! { _ = tokio::signal::ctrl_c() => { let _ = shutdown_sender.send(true); }, _ = async { while !*receiver.borrow_and_update() { if receiver.changed().await.is_err() { break; } } } => {} }
+        operations.shutdown().await;
     }).await?;
     Ok(())
 }

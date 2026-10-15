@@ -25,18 +25,18 @@ impl std::fmt::Display for ActionError {
 }
 impl std::error::Error for ActionError {}
 
-struct Git {
-    repo: Repo,
-    commands: Vec<CommandRecord>,
+pub(crate) struct Git {
+    pub(crate) repo: Repo,
+    pub(crate) commands: Vec<CommandRecord>,
 }
 impl Git {
-    fn new(repo: Repo) -> Self {
+    pub(crate) fn new(repo: Repo) -> Self {
         Self {
             repo,
             commands: Vec::new(),
         }
     }
-    fn run(&mut self, args: &[&str], input: Option<&[u8]>) -> Result<std::process::Output> {
+    pub(crate) fn run(&mut self, args: &[&str], input: Option<&[u8]>) -> Result<std::process::Output> {
         let command = self.repo.command(args);
         let argv = std::iter::once(command.get_program())
             .chain(command.get_args())
@@ -53,7 +53,7 @@ impl Git {
         });
         Ok(output)
     }
-    fn checked(&mut self, args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>> {
+    pub(crate) fn checked(&mut self, args: &[&str], input: Option<&[u8]>) -> Result<Vec<u8>> {
         let output = self.run(args, input)?;
         if !output.status.success() {
             return Err(ActionError {
@@ -65,7 +65,7 @@ impl Git {
         }
         Ok(output.stdout)
     }
-    fn head(&mut self) -> Result<Option<String>> {
+    pub(crate) fn head(&mut self) -> Result<Option<String>> {
         let output = self.run(&["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], None)?;
         if output.status.code() == Some(1) {
             return Ok(None);
@@ -73,11 +73,11 @@ impl Git {
         ensure!(output.status.success(), "Git HEAD lookup failed");
         Ok(Some(std::str::from_utf8(&output.stdout)?.trim().to_owned()))
     }
-    fn finish(self, mut value: Value) -> Value {
+    pub(crate) fn finish(self, mut value: Value) -> Value {
         value["commands"] = json!(self.commands);
         value
     }
-    fn path(&self, path: &str) -> Result<String> {
+    pub(crate) fn path(&self, path: &str) -> Result<String> {
         let path = path.trim_end_matches('/');
         let normalized = self.repo.relative(&self.repo.root.join(path))?;
         ensure!(normalized == path, "path must be repository-root-relative");
@@ -365,7 +365,7 @@ fn hunks(patch: &str) -> Result<(String, Vec<Hunk>)> {
     Ok((prefix, result))
 }
 
-fn worktree(repo: &Repo, path: &str) -> Result<(Vec<u8>, bool, bool)> {
+pub(crate) fn worktree(repo: &Repo, path: &str) -> Result<(Vec<u8>, bool, bool)> {
     let mut absolute = repo.root.clone();
     let parts: Vec<_> = Path::new(path).components().collect();
     for (index, part) in parts.iter().enumerate() {
