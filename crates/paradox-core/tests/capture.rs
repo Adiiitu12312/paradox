@@ -233,7 +233,10 @@ fn literal_backslash_paths_do_not_select_a_different_file() {
     let loops = store.loops(r"nested\file.ts").unwrap();
     assert_eq!(loops.len(), 1);
     assert!(store.loops("nested/file.ts").unwrap().is_empty());
-    assert_eq!(store.blobs.get(&loops[0].blob_hash).unwrap(), b"literal backslash\n");
+    assert_eq!(
+        store.blobs.get(&loops[0].blob_hash).unwrap(),
+        b"literal backslash\n"
+    );
 }
 
 #[test]

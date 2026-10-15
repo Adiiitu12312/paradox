@@ -98,6 +98,9 @@ Messages use `//>`, `#>`, `-->`, `-- >`, `;>`, `%>`, `/*> message */` or
 line two. Closed markers must end on that line; code after a closing delimiter
 is not a marker. An unchanged message line gets an automatic diff label instead.
 JSON always gets an automatic label. No working file is edited by capture.
+Loop storage requires UTF-8 paths. Repository paths containing line breaks are
+refused because discovery output would be ambiguous; Git pass-through still
+preserves its original operating-system arguments.
 
 Commit-time marker stripping and automatic editor/AI hook setup arrive in M4;
 this development build does not install them. `watch` arrives in M4.5.
