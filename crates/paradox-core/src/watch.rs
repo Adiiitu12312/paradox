@@ -387,6 +387,22 @@ fn persist_status(repo: &Repo, state: &Status) -> Result<()> {
     atomic_write(&state_path(repo), &bytes)
 }
 
+fn release_refresh_scratch() {
+    #[cfg(target_os = "macos")]
+    {
+        unsafe extern "C" {
+            fn malloc_zone_pressure_relief(zone: *mut std::ffi::c_void, goal: usize) -> usize;
+        }
+        // Apple's public allocator API releases unused pages across all zones
+        // for (NULL, 0). Coverage and status temporaries have already dropped;
+        // live paths/native watcher objects remain allocated. Never run on a
+        // timer: only after startup or an event-driven tracked-set refresh.
+        unsafe {
+            let _ = malloc_zone_pressure_relief(std::ptr::null_mut(), 0);
+        }
+    }
+}
+
 fn receive(receiver: &Receiver<Message>, timeout: Option<Duration>) -> Result<Option<Message>> {
     if let Some(timeout) = timeout {
         match receiver.recv_timeout(timeout) {
@@ -469,6 +485,7 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
         atomic_write(&stop_path(&repo), b"")?;
     }
     persist_status(&repo, &state)?;
+    release_refresh_scratch();
     let idle = idle_duration(config.watch_idle_minutes);
     println!(
         "Paradox watching {} tracked files; {}",
@@ -691,6 +708,7 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
                                     bulk = true;
                                     bulk_started = Some(processed_time);
                                 }
+                                drop(previous);
                             }
                             Err(error) => {
                                 coverage.files = previous;
@@ -701,6 +719,7 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
                         if let Err(error) = persist_status(&repo, &state) {
                             log_at(&repo.store, &format!("watch status: {error:#}"));
                         }
+                        release_refresh_scratch();
                     }
                 }
                 None => {
