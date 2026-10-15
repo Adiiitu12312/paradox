@@ -57,16 +57,42 @@ pub fn hooks_dir(repo: &Repo) -> Result<PathBuf> {
 // Other interpreters and native executables keep their existing delegation.
 fn renamed_shell_hook(previous: &Path) -> Option<(String, PathBuf)> {
     use std::io::Read;
-    let name = previous.file_name()?.to_str()?.strip_suffix(".paradox-original")?;
+    let name = previous
+        .file_name()?
+        .to_str()?
+        .strip_suffix(".paradox-original")?;
     let original = previous.with_file_name(name);
-    let source = if previous.exists() { previous } else { &original };
+    let source = if previous.exists() {
+        previous
+    } else {
+        &original
+    };
     let mut prefix = Vec::new();
-    fs::File::open(source).ok()?.take(4096).read_to_end(&mut prefix).ok()?;
+    fs::File::open(source)
+        .ok()?
+        .take(4096)
+        .read_to_end(&mut prefix)
+        .ok()?;
     let header = std::str::from_utf8(prefix.split(|byte| *byte == b'\n').next()?).ok()?;
-    let words: Vec<_> = header.strip_prefix("#!")?.split_ascii_whitespace().collect();
+    let words: Vec<_> = header
+        .strip_prefix("#!")?
+        .split_ascii_whitespace()
+        .collect();
     let interpreter = match words.as_slice() {
-        [interpreter] if matches!(Path::new(interpreter).file_name()?.to_str()?, "sh" | "bash" | "dash") => *interpreter,
-        [env, interpreter] if Path::new(env).file_name()?.to_str()? == "env" && matches!(*interpreter, "sh" | "bash" | "dash") => *interpreter,
+        [interpreter]
+            if matches!(
+                Path::new(interpreter).file_name()?.to_str()?,
+                "sh" | "bash" | "dash"
+            ) =>
+        {
+            *interpreter
+        }
+        [env, interpreter]
+            if Path::new(env).file_name()?.to_str()? == "env"
+                && matches!(*interpreter, "sh" | "bash" | "dash") =>
+        {
+            *interpreter
+        }
         _ => return None,
     };
     Some((interpreter.to_string(), original))
@@ -79,11 +105,27 @@ pub fn hook_script(exe: &Path, previous: Option<&Path>, event: Option<&str>) -> 
         let invocation = if let Some((interpreter, original)) = renamed_shell_hook(previous) {
             let previous = previous.to_str().context("hook path must be UTF-8")?;
             let original = original.to_str().context("hook path must be UTF-8")?;
-            let previous = if cfg!(windows) { previous.replace('\\', "/") } else { previous.to_string() };
-            let original = if cfg!(windows) { original.replace('\\', "/") } else { original.to_string() };
-            format!("( paradox_hook_body=$(cat -- {}) || exit $?; {} -c \"$paradox_hook_body\" {} \"$@\" )", shell_quote(&previous), shell_quote(&interpreter), shell_quote(&original))
+            let previous = if cfg!(windows) {
+                previous.replace('\\', "/")
+            } else {
+                previous.to_string()
+            };
+            let original = if cfg!(windows) {
+                original.replace('\\', "/")
+            } else {
+                original.to_string()
+            };
+            format!(
+                "( paradox_hook_body=$(cat -- {}) || exit $?; {} -c \"$paradox_hook_body\" {} \"$@\" )",
+                shell_quote(&previous),
+                shell_quote(&interpreter),
+                shell_quote(&original)
+            )
         } else {
-            format!("{} \"$@\"", shell_quote(previous.to_str().context("hook path must be UTF-8")?))
+            format!(
+                "{} \"$@\"",
+                shell_quote(previous.to_str().context("hook path must be UTF-8")?)
+            )
         };
         script.push_str(&format!(
             "{invocation}{}\n",
