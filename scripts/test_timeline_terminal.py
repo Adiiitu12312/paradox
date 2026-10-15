@@ -83,7 +83,8 @@ def main():
         with tempfile.TemporaryDirectory(prefix='paradox-timeline-cancel-') as directory:
             root = Path(directory)
             env, git, run = fixture(root)
-            (root / 'a.ts').write_text('base\n')
+            before_file = b'base\r\n' if label == 'Ctrl+C' else b'base\n'
+            (root / 'a.ts').write_bytes(before_file)
             run(git, 'add', 'a.ts')
             before = (root / '.git/info/exclude').read_bytes()
 
@@ -95,7 +96,7 @@ def main():
             assert code == 0 and b'Timeline cancelled.' in output, (label, code, output)
             assert not (root / '.paradox').exists()
             assert (root / '.git/info/exclude').read_bytes() == before
-            assert (root / 'a.ts').read_bytes() == b'base\n'
+            assert (root / 'a.ts').read_bytes() == before_file
             print(f'PASS: {label} cancels cleanly without creating a loop store or altering files')
 
 
