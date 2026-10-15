@@ -1,0 +1,50 @@
+name: Diagnose macOS watcher memory (non-gating)
+on: workflow_dispatch
+permissions:
+  contents: read
+  actions: read
+jobs:
+  memory:
+    runs-on: macos-15
+    timeout-minutes: 20
+    env:
+      CARGO_BUILD_TARGET: aarch64-apple-darwin
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/download-artifact@v4
+        with:
+          name: paradox-macOS-ARM64
+          path: .artifacts/watch-memory-baseline
+          github-token: ${{ github.token }}
+          run-id: 38732830097
+      - name: Build and test the compact tracked-set candidate
+        run: |
+          cargo fmt --all
+          mkdir -p memory-diagnostics
+          git diff --binary > memory-diagnostics/preparation.patch
+          cargo test --locked -p paradox-core --lib
+          cargo test --locked -p paradox-cli --features fault-injection --test watch
+          cargo build --release --locked -p paradox-cli
+      - name: Compare native RSS after one minute on exact 50,000-file fixtures
+        run: |
+          chmod +x .artifacts/watch-memory-baseline/paradox
+          python3 - <<'PY'
+          import hashlib
+          from pathlib import Path
+          binary = Path('.artifacts/watch-memory-baseline/paradox')
+          assert hashlib.sha256(binary.read_bytes()).hexdigest() == 'ffdf0f7fa1b59ca43c393db78f59878d28d45066b0dc81369665751a7255bb39'
+          PY
+          python3 scripts/diagnose_watch_memory.py \
+            --candidate Baseline="$PWD/.artifacts/watch-memory-baseline/paradox" \
+            --candidate Compact="$PWD/target/aarch64-apple-darwin/release/paradox" \
+            --output "$PWD/memory-diagnostics"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: macos-watch-memory-diagnostic
+          path: memory-diagnostics/
+          retention-days: 7

@@ -188,8 +188,67 @@ fn remove_ignored(repo: &Repo, paths: &mut HashSet<String>) -> Result<()> {
     Ok(())
 }
 
+/// Exact sorted paths without one heap allocation and hash bucket per file.
+#[derive(Default)]
+struct TrackedPaths {
+    arena: Box<str>,
+    starts: Box<[usize]>,
+}
+
+impl TrackedPaths {
+    fn from_paths(paths: HashSet<String>) -> Result<Self> {
+        let mut paths: Vec<_> = paths.into_iter().collect();
+        paths.sort_unstable();
+        let capacity = paths.iter().map(|path| path.len() + 1).sum();
+        let mut arena = String::with_capacity(capacity);
+        let mut starts = Vec::with_capacity(paths.len());
+        for path in paths {
+            ensure!(!path.is_empty() && !path.contains('\0'), "invalid tracked path");
+            starts.push(arena.len());
+            arena.push_str(&path);
+            arena.push('\0');
+        }
+        Ok(Self {
+            arena: arena.into_boxed_str(),
+            starts: starts.into_boxed_slice(),
+        })
+    }
+
+    fn len(&self) -> usize {
+        self.starts.len()
+    }
+
+    fn path_at(&self, index: usize) -> &str {
+        let start = self.starts[index];
+        let end = self.starts.get(index + 1).copied().unwrap_or(self.arena.len()) - 1;
+        &self.arena[start..end]
+    }
+
+    fn contains(&self, path: &str) -> bool {
+        let mut left = 0;
+        let mut right = self.len();
+        while left < right {
+            let middle = left + (right - left) / 2;
+            match self.path_at(middle).cmp(path) {
+                std::cmp::Ordering::Less => left = middle + 1,
+                std::cmp::Ordering::Greater => right = middle,
+                std::cmp::Ordering::Equal => return true,
+            }
+        }
+        false
+    }
+
+    fn iter(&self) -> impl Iterator<Item = &str> {
+        self.arena.split_terminator('\0')
+    }
+
+    fn difference<'a>(&'a self, other: &'a Self) -> impl Iterator<Item = &'a str> + 'a {
+        self.iter().filter(move |path| !other.contains(path))
+    }
+}
+
 struct Coverage {
-    files: HashSet<String>,
+    files: TrackedPaths,
     watched: BTreeSet<PathBuf>,
     index: PathBuf,
     root: PathBuf,
@@ -199,7 +258,7 @@ impl Coverage {
     fn new(repo: &Repo) -> Result<Self> {
         let index = repo.git(&["rev-parse", "--path-format=absolute", "--git-path", "index"])?;
         Ok(Self {
-            files: HashSet::new(),
+            files: TrackedPaths::default(),
             watched: BTreeSet::new(),
             index: PathBuf::from(
                 std::str::from_utf8(&index.stdout)?.trim_end_matches(['\r', '\n']),
@@ -209,7 +268,7 @@ impl Coverage {
     }
 
     fn refresh(&mut self, repo: &Repo, watcher: &mut RecommendedWatcher) -> Result<()> {
-        let files = tracked(repo)?;
+        let files = TrackedPaths::from_paths(tracked(repo)?)?;
         let controls: BTreeSet<_> = [
             self.index
                 .parent()
@@ -602,14 +661,14 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
                                 });
                                 for name in coverage.files.difference(&previous) {
                                     pending
-                                        .entry(name.clone())
+                                        .entry(name.to_owned())
                                         .and_modify(|times| {
                                             times.0 = times.0.min(clock);
                                             times.1 = times.1.max(clock);
                                         })
                                         .or_insert((clock, clock));
                                     recent
-                                        .entry(name.clone())
+                                        .entry(name.to_owned())
                                         .and_modify(|when| *when = (*when).max(clock))
                                         .or_insert(clock);
                                     last_change = last_change.max(clock);
@@ -683,5 +742,73 @@ pub fn wait_started(repo: &Repo, token: &str, launch: impl FnOnce() -> Result<()
         receiver
             .recv_timeout(remaining)
             .context("watch background startup timed out; see .paradox/watch-output.log")??;
+    }
+}
+
+#[cfg(test)]
+mod tracked_paths_tests {
+    use super::TrackedPaths;
+    use std::collections::HashSet;
+
+    fn paths(names: &[&str]) -> TrackedPaths {
+        TrackedPaths::from_paths(names.iter().map(|name| (*name).to_owned()).collect()).unwrap()
+    }
+
+    #[test]
+    fn exact_membership_and_sorted_iteration_preserve_path_bytes() {
+        let names = [
+            "a", "a/b", "a-b", "ab", "a.ts", "space name.ts", "tab\tname.ts",
+            "line\nname.ts", "return\rname.ts", "literal\\name.ts", "日本語/é.ts",
+        ];
+        let packed = paths(&names);
+        let reference: HashSet<_> = names.into_iter().collect();
+        let mut ordered: Vec<_> = reference.iter().copied().collect();
+        ordered.sort_unstable();
+        assert_eq!(packed.len(), reference.len());
+        assert_eq!(packed.iter().collect::<Vec<_>>(), ordered);
+        for name in names.into_iter().chain([
+            "", "A", "a/", "a/b/", "a.t", "abc", "é.ts", "tab name.ts", "a\0b",
+        ]) {
+            assert_eq!(packed.contains(name), reference.contains(name), "{name:?}");
+        }
+        let empty = TrackedPaths::default();
+        assert_eq!(empty.len(), 0);
+        assert_eq!(empty.iter().count(), 0);
+        assert!(!empty.contains("a"));
+    }
+
+    #[test]
+    fn refresh_difference_only_returns_new_paths() {
+        let before = paths(&["keep.ts", "old.ts", "line\nname.ts"]);
+        let after = paths(&["keep.ts", "new.ts", "line\nname.ts", "日本語/new.ts"]);
+        assert_eq!(
+            after.difference(&before).collect::<Vec<_>>(),
+            ["new.ts", "日本語/new.ts"]
+        );
+        assert_eq!(before.difference(&after).collect::<Vec<_>>(), ["old.ts"]);
+        assert_eq!(after.difference(&after).count(), 0);
+    }
+
+    #[test]
+    fn fifty_thousand_paths_use_only_exact_path_bytes_and_one_offset_each() {
+        let names: HashSet<_> = (0..50_000).map(|n| format!("src/{n}.ts")).collect();
+        let path_bytes: usize = names.iter().map(|name| name.len() + 1).sum();
+        let packed = TrackedPaths::from_paths(names).unwrap();
+        assert_eq!(packed.len(), 50_000);
+        assert_eq!(packed.arena.len(), path_bytes);
+        assert_eq!(packed.starts.len(), 50_000);
+        assert!(packed.arena.len() + std::mem::size_of_val(&*packed.starts) < 1_100_000);
+        for n in 0..50_000 {
+            assert!(packed.contains(&format!("src/{n}.ts")));
+        }
+        assert!(!packed.contains("src/50000.ts"));
+        assert!(!packed.contains("src/1.t"));
+    }
+
+    #[test]
+    fn invalid_separator_or_empty_filename_is_an_error() {
+        for name in ["", "bad\0name"] {
+            assert!(TrackedPaths::from_paths([name.to_owned()].into_iter().collect()).is_err());
+        }
     }
 }

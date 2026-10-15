@@ -1,5 +1,11 @@
 # Windows development builds and Application Control
 
+**Current status:** the owner has turned Smart App Control off. The `d724d1f`
+Windows build passed a local smoke check at 12:17 UTC on October 15: Git parity,
+one native watcher save, status, stop and process exit, all in a disposable
+OS-temp repository. Node remains v26.4.0. No further security change is needed
+for the development binary tested here.
+
 On October 15, 2026, Windows Code Integrity event 3077 recorded
 `C:\Program Files\nodejs\node.exe` trying to launch the downloaded Paradox
 development binary. The blocked file was `paradox.exe`, which did not meet the
