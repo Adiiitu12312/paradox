@@ -262,6 +262,14 @@ impl LoopStore {
             .context("commit time is out of range")
     }
 
+    fn known_rewind_path(&self, path: &str, version: &Version) -> Result<bool> {
+        if version.id.is_some() || matches!(version.source, Source::Git(_)) { return Ok(true); }
+        if self.index.query_row("SELECT EXISTS(SELECT 1 FROM loops WHERE worktree=?1 AND path=?2)", params![self.repo.worktree, path], |row| row.get::<_, bool>(0))? { return Ok(true); }
+        if self.repo.tracked(&[path.to_owned()])?.contains(path) { return Ok(true); }
+        if version.label == "HEAD" || self.repo.head.is_empty() { return Ok(false); }
+        Ok(!self.head_version(path)?.deleted)
+    }
+
     fn git_version(&self, path: &str, commit: &str, ts: i64, label: &str) -> Result<Version> {
         if commit.is_empty() {
             return Ok(Version {
@@ -701,6 +709,7 @@ impl LoopStore {
         for plan in plans {
             ensure!(unique.insert(&plan.path), "duplicate file in rewind plan");
             ensure!(plan.path == plan.version.path, "version/path mismatch");
+            ensure!(self.known_rewind_path(&plan.path, &plan.version)?, "path has no tracked history; use paradox track before creating loops");
             ensure!(
                 !matches!(plan.version.source, Source::Working),
                 "choose a stored version to rewind to"

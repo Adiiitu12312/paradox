@@ -138,6 +138,9 @@ it can also undo recreating a deleted file. Binary, oversized, secret-denylisted
 or linked working files cannot be safely backed up and are refused. Binary or
 oversized targets are refused too, so the result remains eligible for undo. Existing
 file permissions are retained; saved modes are used when recreating files on Unix.
+A path with no current tracking or historical version is refused rather than
+adopted or deleted by a rewind. Restoring known history remains possible after
+untracking or a staged deletion.
 
 Batch time means the most recent local occurrence of `HH:MM`; ambiguous or
 nonexistent daylight-saving times are refused. The preview names every planned
