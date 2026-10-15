@@ -2,7 +2,7 @@ use std::ffi::OsString;
 
 pub const OWNED: &[&str] = &[
     "commit", "init", "ui", "git", "loop", "loops", "compare", "rewind", "timeline", "pin",
-    "unpin", "track", "untrack",
+    "unpin", "track", "untrack", "watch",
 ];
 
 #[derive(Debug, PartialEq, Eq)]

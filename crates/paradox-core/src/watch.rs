@@ -10,6 +10,7 @@ use std::collections::{BTreeSet, HashMap, HashSet};
 use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::process::Stdio;
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
@@ -81,13 +82,42 @@ fn excluded(path: &str) -> bool {
     path.split('/').any(|part| matches!(part, ".git" | ".paradox" | "node_modules" | "target" | "dist" | "build" | "out" | ".next"))
 }
 
+#[cfg(target_os="linux")]
+fn inotify_limit() -> Option<usize> {
+    #[cfg(feature="fault-injection")]
+    if let Ok(value) = std::env::var("PARADOX_TEST_INOTIFY_LIMIT") {
+        return value.parse().ok();
+    }
+    fs::read_to_string("/proc/sys/fs/inotify/max_user_watches").ok()?.trim().parse().ok()
+}
+
 fn tracked(repo: &Repo) -> Result<HashSet<String>> {
     let mut tracked = repo.tracked(&[])?;
-    let ignored = repo.git(&["ls-files", "--cached", "--ignored", "--exclude-standard", "-z"])?;
-    let ignored: HashSet<_> = ignored.stdout.split(|byte| *byte == 0)
-        .filter_map(|name| std::str::from_utf8(name).ok()).collect();
-    tracked.retain(|path| !excluded(path) && !ignored.contains(path.as_str()) && repo.regular_file(path).is_ok());
+    tracked.retain(|path| !excluded(path) && repo.regular_file(path).is_ok());
+    remove_ignored(repo, &mut tracked)?;
     Ok(tracked)
+}
+
+fn remove_ignored(repo: &Repo, paths: &mut HashSet<String>) -> Result<()> {
+    if paths.is_empty() { return Ok(()); }
+    let mut child = repo.command(&["check-ignore", "--no-index", "--stdin", "-z"])
+        .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn()?;
+    let mut input = child.stdin.take().context("missing Git ignore input")?;
+    // Read stdout concurrently with writing stdin: a large ignored tracked set
+    // must never deadlock when both OS pipes fill.
+    let output = std::thread::scope(|scope| -> Result<_> {
+        let paths: &HashSet<String> = paths;
+        let writer = scope.spawn(move || -> std::io::Result<()> {
+            for path in paths { input.write_all(path.as_bytes())?; input.write_all(&[0])?; }
+            Ok(())
+        });
+        let output = child.wait_with_output()?;
+        writer.join().map_err(|_| anyhow::anyhow!("Git ignore input writer failed"))??;
+        Ok(output)
+    })?;
+    ensure!(matches!(output.status.code(), Some(0 | 1)), "Git ignore check failed: {}", String::from_utf8_lossy(&output.stderr));
+    for path in output.stdout.split(|byte| *byte == 0).filter_map(|bytes| std::str::from_utf8(bytes).ok()) { paths.remove(path); }
+    Ok(())
 }
 
 struct Coverage {
@@ -114,8 +144,7 @@ impl Coverage {
         }).collect();
         #[cfg(target_os="linux")]
         {
-            if let Ok(limit) = fs::read_to_string("/proc/sys/fs/inotify/max_user_watches")
-                && let Ok(limit) = limit.trim().parse::<usize>() {
+            if let Some(limit) = inotify_limit() {
                 let available = limit.saturating_sub(controls.len());
                 if directories.len() > available {
                     let omitted: Vec<_> = directories.iter().skip(available).map(|p| p.display().to_string()).collect();
@@ -236,6 +265,7 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
                             continue;
                         }
                         if normalized_path == normalized(coverage.index.parent().context("index directory")?).join(coverage.index.file_name().context("index filename")?) || normalized_path == normalized(&repo.store).join("tracked.toml") { refresh = true; continue; }
+                        if path.file_name().is_some_and(|name| name == ".gitignore") { refresh = true; }
                         if let Some(name) = coverage.relative(path) {
                             let clock = Instant::now();
                             pending.insert(name, clock);
@@ -252,9 +282,15 @@ pub fn run(repo: Repo, token: String) -> Result<()> {
                 },
                 None => {
                     if batch_due.is_some_and(|due| Instant::now() >= due) && !pending.is_empty() {
-                        let paths: Vec<_> = pending.keys().map(|name| repo.root.join(name)).collect();
+                        let mut selected: HashSet<_> = pending.keys().cloned().collect();
+                        // Ignore rules may change without an index update.
+                        if let Err(error) = remove_ignored(&repo, &mut selected) {
+                            log_at(&repo.store, &format!("watch ignore check: {error:#}")); selected.clear();
+                        }
+                        let paths: Vec<_> = selected.iter().map(|name| repo.root.join(name)).collect();
                         if bulk { log_at(&repo.store, &format!("watch bulk operation: {} files; recording bulk change loops", paths.len())); }
-                        let result = LoopStore::open(repo.clone()).and_then(|mut store| store.capture_watch(&paths, bulk));
+                        let result = if paths.is_empty() { Ok(crate::store::CaptureReport::default()) }
+                            else { Repo::discover(&repo.globals).and_then(LoopStore::open).and_then(|mut store| store.capture_watch(&paths, bulk)) };
                         match result {
                             Ok(report) => { state.loops_created += report.saved as u64; },
                             Err(error) => log_at(&repo.store, &format!("watch capture: {error:#}")),

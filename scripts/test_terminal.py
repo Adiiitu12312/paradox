@@ -216,6 +216,17 @@ def main():
         assert compared[0] == 0 and b"\x1b[32m" in compared[1] and b"\x1b[31m" in compared[1], compared
         print("PASS: Paradox compare colors additions and removals on a real terminal")
 
+        try:
+            watched = terminal(binary, ["watch"], root, env, interrupt=True,
+                               interrupt_ready=b"Paradox watching ")
+            assert watched[0] == 0 and b"Paradox watch stopped" in watched[1], watched
+            status = subprocess.check_output([binary, "watch", "--status"], cwd=root, env=env)
+            assert status.strip() == b"not running", status
+            print("PASS: foreground watch Ctrl+C exits and releases its session lock")
+        finally:
+            subprocess.run([binary, "watch", "--stop"], cwd=root, env=env,
+                           stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10)
+
 
 if __name__ == "__main__":
     main()

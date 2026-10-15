@@ -12,10 +12,20 @@ fn persistent_regression(rounds: [bool; 3]) -> bool {
 
 #[test]
 fn isolated_noisy_round_does_not_fail_but_two_exceedances_do() {
-    for rounds in [[true, false, false], [false, true, false], [false, false, true], [false; 3]] {
+    for rounds in [
+        [true, false, false],
+        [false, true, false],
+        [false, false, true],
+        [false; 3],
+    ] {
         assert!(!persistent_regression(rounds));
     }
-    for rounds in [[true, true, false], [true, false, true], [false, true, true], [true; 3]] {
+    for rounds in [
+        [true, true, false],
+        [true, false, true],
+        [false, true, true],
+        [true; 3],
+    ] {
         assert!(persistent_regression(rounds));
     }
     assert_eq!(median(&mut [-5_i128, 1, -3]), -3);
@@ -67,37 +77,38 @@ fn passthrough_overhead_within_stored_baseline() {
     for args in [&["--version"][..], &["status", "--porcelain=v2", "-z"]] {
         let mut exceeded = [false; 3];
         for (round, exceeded) in exceeded.iter_mut().enumerate() {
-        let mut direct = Vec::new();
-        let mut wrapped = Vec::new();
-        let mut differences = Vec::new();
-        for _ in 0..16 {
-            elapsed("git", root.path(), args);
-            elapsed(env!("CARGO_BIN_EXE_paradox"), root.path(), args);
-        }
-        // Alternate ordering to reduce bias from scheduling and filesystem caches.
-        for n in 0..201 {
-            let (a, b) = if (n + round) % 2 == 0 {
-                (
-                    elapsed("git", root.path(), args),
-                    elapsed(env!("CARGO_BIN_EXE_paradox"), root.path(), args),
-                )
-            } else {
-                let b = elapsed(env!("CARGO_BIN_EXE_paradox"), root.path(), args);
-                (elapsed("git", root.path(), args), b)
-            };
-            direct.push(a);
-            wrapped.push(b);
-            differences.push(b.as_nanos() as i128 - a.as_nanos() as i128);
-        }
-        let git = median(&mut direct);
-        let paradox = median(&mut wrapped);
-        // Keep signed paired differences until after the median, so scheduling
-        // noise cannot bias the result by clamping individual negative samples.
-        let overhead = Duration::from_nanos(median(&mut differences).max(0) as u64);
-        println!(
-            "{args:?}: round={}/3, git median={git:?}, paradox median={paradox:?}, paired overhead={overhead:?}, samples_each=201, ceiling_ms={ceiling_ms}", round + 1
-        );
-        *exceeded = overhead > ceiling;
+            let mut direct = Vec::new();
+            let mut wrapped = Vec::new();
+            let mut differences = Vec::new();
+            for _ in 0..16 {
+                elapsed("git", root.path(), args);
+                elapsed(env!("CARGO_BIN_EXE_paradox"), root.path(), args);
+            }
+            // Alternate ordering to reduce bias from scheduling and filesystem caches.
+            for n in 0..201 {
+                let (a, b) = if (n + round) % 2 == 0 {
+                    (
+                        elapsed("git", root.path(), args),
+                        elapsed(env!("CARGO_BIN_EXE_paradox"), root.path(), args),
+                    )
+                } else {
+                    let b = elapsed(env!("CARGO_BIN_EXE_paradox"), root.path(), args);
+                    (elapsed("git", root.path(), args), b)
+                };
+                direct.push(a);
+                wrapped.push(b);
+                differences.push(b.as_nanos() as i128 - a.as_nanos() as i128);
+            }
+            let git = median(&mut direct);
+            let paradox = median(&mut wrapped);
+            // Keep signed paired differences until after the median, so scheduling
+            // noise cannot bias the result by clamping individual negative samples.
+            let overhead = Duration::from_nanos(median(&mut differences).max(0) as u64);
+            println!(
+                "{args:?}: round={}/3, git median={git:?}, paradox median={paradox:?}, paired overhead={overhead:?}, samples_each=201, ceiling_ms={ceiling_ms}",
+                round + 1
+            );
+            *exceeded = overhead > ceiling;
         }
         let failed = persistent_regression(exceeded);
         println!("{args:?}: exceeded={exceeded:?}, persistent_regression={failed}");

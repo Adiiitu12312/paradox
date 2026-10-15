@@ -249,11 +249,17 @@ smaller of its limit and its observed median plus 50% and 1 ms scheduling varian
 Baselines never increase automatically. M4's Run-on-Save configuration uses
 `isAsync: true`, so an editor save does not wait for capture.
 
-The release test measures 101 alternating pairs after warmup for both version and
-status, on all three OSes. [Stored baselines](benchmarks/passthrough.csv) also catch
+The release test measures 201 samples of each executable per round, after 16
+warm-up samples each, for both version and status on all three OSes. Git and
+Paradox runs are interleaved with counterbalanced pair order in one test process.
+Each of three consecutive rounds reports its median signed paired difference;
+a command fails only when at least two rounds exceed its ceiling. All three
+rounds run, so a lone noisy result cannot fail or trigger selective retries.
+[Stored baselines](benchmarks/passthrough.csv) also catch
 regressions: the ceiling is the smaller of the OS limit and the recorded baseline
 plus 50% and 1 ms scheduling allowance. Point observations are recorded separately;
-the allowance avoids treating ordinary shared-runner jitter as a code regression.
+the allowance and two-of-three rule absorb shared-runner noise. OS thresholds
+remain 5 ms for Linux/macOS and 20 ms for Windows; baselines are not increased.
 
 CI uses Windows, Linux and the fixed macOS 15 ARM64 runner, with the same strict
 macOS limits and stored baselines. The [M4 report](docs/milestones/M4.md) retains

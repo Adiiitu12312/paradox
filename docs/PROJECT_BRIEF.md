@@ -178,7 +178,7 @@ Integration tests (assert_cmd, temp repos)
 - Large file/binary/secret files never get loops.
 - Process-lifecycle check: no command auto-starts any background process. Only explicitly started `paradox ui` and `paradox watch` sessions may remain running. A watcher must leave no process after Ctrl+C, `--stop` or idle exit; test foreground and explicitly requested background sessions.
 Performance benchmarks (fail the build on regression)
-- Pass-through overhead vs plain git under 5 ms median on Linux/macOS and under 20 ms on Windows; also enforce the stored per-OS regression baseline.
+- Pass-through overhead vs plain git under 5 ms median on Linux/macOS and under 20 ms on Windows; also enforce the stored per-OS regression baseline. Interleave Git and Paradox in one test process, with at least 200 measured samples each after warm-up in each of three consecutive rounds. Compare the median signed paired timing difference. Fail a command only if its unchanged ceiling is exceeded in at least two of three rounds; always report all three. Keep stored baseline observations unchanged.
 - `paradox loop <file>` on 50,000 tracked files: median under 50 ms on Linux/macOS, under 100 ms on Windows. Warm stat scan median under 500 ms on Linux/macOS, under 1000 ms on Windows. Enforce stored per-OS capture baselines as well as these limits; atomic writes, fsync, SQLite synchronous mode and locking remain mandatory.
 - Synthetic large repo (use `git fast-import`, 100k+ commits, multi-GB if feasible, otherwise scaled with documented extrapolation): UI graph first page under 300 ms, smooth paging.
 UI tests
