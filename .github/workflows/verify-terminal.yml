@@ -36,7 +36,8 @@ jobs:
         run: chmod +x terminal-bin/paradox
       - name: Install Windows terminal helper on the hosted runner
         if: runner.os == 'Windows'
-        run: python -m pip install --only-binary=:all: "pywinpty>=3,<4"
+        run: |
+          python -m pip install --only-binary=:all: "pywinpty>=3,<4"
       - name: Record downloaded binary and fixture provenance
         env:
           BUILD_RUN: ${{ inputs.build_run }}
