@@ -67,5 +67,8 @@ fn passthrough_overhead_below_five_ms() {
         );
         below_limit &= overhead < Duration::from_millis(5);
     }
-    assert!(below_limit, "pass-through overhead exceeded 5 ms; see both measurements above");
+    assert!(
+        below_limit,
+        "pass-through overhead exceeded 5 ms; see both measurements above"
+    );
 }
