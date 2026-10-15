@@ -105,5 +105,8 @@ fn init_refuses_manifest_over_cap_before_changing_existing_hooks_or_settings() {
     assert!(store.bytes().unwrap() <= cap);
     let retained = store.loops("a.ts").unwrap();
     assert_eq!(retained.len(), ids.len());
-    assert!(ids.iter().all(|id| retained.iter().any(|entry| entry.id == *id && entry.pinned)));
+    assert!(
+        ids.iter()
+            .all(|id| retained.iter().any(|entry| entry.id == *id && entry.pinned))
+    );
 }

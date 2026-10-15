@@ -103,15 +103,20 @@ fn write_manifest(store: &LoopStore, path: &Path, manifest: &Manifest) -> Result
     if manifest.edits.is_empty() && manifest.hooks.is_empty() {
         if path.exists() {
             fs::remove_file(path)?;
-            #[cfg(unix)] fs::File::open(&store.repo.store)?.sync_all()?;
+            #[cfg(unix)]
+            fs::File::open(&store.repo.store)?.sync_all()?;
         }
         return Ok(());
     }
     let bytes = serde_json::to_vec_pretty(manifest)?;
     let old = fs::metadata(path).map_or(0, |m| m.len().max(4096));
     let new = (bytes.len() as u64).max(4096);
-    ensure!(new <= old || store.bytes()?.saturating_sub(old).saturating_add(new) <= store.config.store_cap_bytes,
-        "store cap leaves no room for setup metadata; unpin and run loop --gc, or raise the cap");
+    ensure!(
+        new <= old
+            || store.bytes()?.saturating_sub(old).saturating_add(new)
+                <= store.config.store_cap_bytes,
+        "store cap leaves no room for setup metadata; unpin and run loop --gc, or raise the cap"
+    );
     atomic_write(path, &bytes)
 }
 fn load_manifest(repo: &Repo) -> Result<Manifest> {
