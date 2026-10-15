@@ -122,9 +122,13 @@ that repository on exit. It enforces the same stored per-OS ceiling.
 ## Milestone order
 
 M1 workspace and dispatcher; M2 loop store and capture; M3 compare and rewind;
-M4 automatic capture, setup and commit conveniences; M5 file picker;
+M4 automatic capture, setup and commit conveniences; M4.5 manual watch sessions;
+M5 file picker;
 M6–M8 browser UI; M9 hardening and release documentation.
 
-After M9, an [optional session-only watch milestone](docs/milestones/M10-optional-watch.md)
-adds manually started native-event capture. It is deferred, never auto-started
-and never installed as a service.
+The [M4.5 watcher](docs/milestones/M4.5-watch.md) covers agents/tools with no edit
+hook. Start it explicitly with `paradox watch` or `paradox watch --background`;
+stop it with Ctrl+C or `paradox watch --stop`, and inspect it with `--status`.
+These commands arrive in M4.5. It is never automatic and never installed as a
+service. Idle sessions stop after 30 minutes by default. Linux users will get an
+explicit coverage warning and instructions if the inotify watch limit is too low.

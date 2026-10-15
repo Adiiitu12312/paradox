@@ -10,6 +10,7 @@ pub struct Config {
     pub retention_commits: usize,
     pub secrets_denylist: Vec<String>,
     pub safety_loop_commands: Vec<String>,
+    pub watch_idle_minutes: u64,
 }
 
 impl Default for Config {
@@ -25,6 +26,7 @@ impl Default for Config {
                 "id_rsa*".into(),
             ],
             safety_loop_commands: Vec::new(),
+            watch_idle_minutes: 30,
         }
     }
 }
