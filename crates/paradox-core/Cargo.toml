@@ -12,7 +12,7 @@ anyhow = "1"
 blake3 = "1"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 fs2 = "0.4"
-jsonc-parser = { version = "0.34", features = ["cst", "serde"] }
+jsonc-parser = { version = "0.34", features = ["cst", "serde_json"] }
 globset = "0.4"
 rusqlite = { version = "0.38", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
