@@ -131,7 +131,9 @@ impl Repo {
         let path = clean
             .to_str()
             .context("loop paths must be UTF-8")?
-            .replace('\\', "/");
+            .to_owned();
+        #[cfg(windows)]
+        let path = path.replace('\\', "/");
         ensure!(
             !path.is_empty() && !path.contains('\0'),
             "invalid empty file path"

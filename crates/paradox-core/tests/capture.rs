@@ -221,8 +221,28 @@ fn large_scan_keeps_baseline_and_detects_changes_after_warmup() {
 
 #[test]
 #[cfg(unix)]
+fn literal_backslash_paths_do_not_select_a_different_file() {
+    let root = fixture();
+    fs::create_dir(root.path().join("nested")).unwrap();
+    fs::write(root.path().join("nested/file.ts"), b"different file\n").unwrap();
+    fs::write(root.path().join(r"nested\file.ts"), b"literal backslash\n").unwrap();
+    git(root.path(), &["add", "-A"]);
+    let mut store = open(root.path());
+    let report = store.capture(&[PathBuf::from(r"nested\file.ts")]).unwrap();
+    assert_eq!(report.saved, 1);
+    let loops = store.loops(r"nested\file.ts").unwrap();
+    assert_eq!(loops.len(), 1);
+    assert!(store.loops("nested/file.ts").unwrap().is_empty());
+    assert_eq!(store.blobs.get(&loops[0].blob_hash).unwrap(), b"literal backslash\n");
+}
+
+#[test]
+#[cfg(unix)]
 fn ambiguous_repository_paths_are_rejected_before_store_creation() {
-    let root = tempfile::Builder::new().prefix("paradox\n").tempdir().unwrap();
+    let root = tempfile::Builder::new()
+        .prefix("paradox\n")
+        .tempdir()
+        .unwrap();
     git(root.path(), &["init", "-q"]);
     let repo = Repo::discover(&[OsString::from("-C"), root.path().as_os_str().to_owned()]);
     assert!(repo.is_err());
