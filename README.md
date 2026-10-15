@@ -82,7 +82,7 @@ cargo audit
 ```
 
 The release performance test alternates 101 pairs after warmup and fails if the
-difference between median Git and Paradox times reaches 5 ms. It measures both
+median of the signed paired Git/Paradox time differences reaches 5 ms. It measures both
 `--version` and status in a temporary repo. Timing varies with machine load.
 
 CI is configured for Windows, macOS and Linux. A local Windows test run is not

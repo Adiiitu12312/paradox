@@ -1,7 +1,7 @@
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
 
-fn median(values: &mut [Duration]) -> Duration {
+fn median<T: Ord + Copy>(values: &mut [T]) -> T {
     values.sort_unstable();
     values[values.len() / 2]
 }
@@ -36,6 +36,7 @@ fn passthrough_overhead_below_five_ms() {
     for args in [&["--version"][..], &["status", "--porcelain=v2", "-z"]] {
         let mut direct = Vec::new();
         let mut wrapped = Vec::new();
+        let mut differences = Vec::new();
         for _ in 0..8 {
             elapsed("git", root.path(), args);
             elapsed(env!("CARGO_BIN_EXE_paradox"), root.path(), args);
@@ -53,12 +54,15 @@ fn passthrough_overhead_below_five_ms() {
             };
             direct.push(a);
             wrapped.push(b);
+            differences.push(b.as_nanos() as i128 - a.as_nanos() as i128);
         }
         let git = median(&mut direct);
         let paradox = median(&mut wrapped);
-        let overhead = paradox.saturating_sub(git);
+        // Keep signed paired differences until after the median, so scheduling
+        // noise cannot bias the result by clamping individual negative samples.
+        let overhead = Duration::from_nanos(median(&mut differences).max(0) as u64);
         println!(
-            "{args:?}: git median={git:?}, paradox median={paradox:?}, overhead={overhead:?}, n=101"
+            "{args:?}: git median={git:?}, paradox median={paradox:?}, paired overhead={overhead:?}, n=101"
         );
         assert!(
             overhead < Duration::from_millis(5),

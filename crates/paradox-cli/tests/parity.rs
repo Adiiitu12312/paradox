@@ -106,7 +106,7 @@ fn forty_plus_read_only_commands_match_byte_for_byte() {
         &["ls-files", "-z"],
         &["ls-tree", "HEAD"],
         &["for-each-ref", "--format=%(refname)"],
-        &["blame", "--porcelain", "file.txt"],
+        &["blame", "--porcelain", "HEAD", "--", "file.txt"],
         &["grep", "first"],
         &["grep", "absent"],
         &["submodule", "status"],
